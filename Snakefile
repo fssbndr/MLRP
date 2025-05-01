@@ -1,8 +1,11 @@
+import os
+
 configfile: "config.yaml"
 
 rule all:
     input:
         log_summary="output_data/baseline_logistic_summary.txt",
+        log_processed="output_data/baseline_logistic_processed.parquet",
         log_plot="output_plots/baseline_logistic_roc_curve.png",
         oasis_plot="output_plots/baseline_oasis_roc_curve.png"
 
@@ -29,10 +32,15 @@ rule baseline_logistic:
         data=config["inputdata_path"] + "data.parquet"
     output:
         summary="output_data/baseline_logistic_summary.txt",
+        processed="output_data/baseline_logistic_processed.parquet",
         plot="output_plots/baseline_logistic_roc_curve.png"
     threads: 1
-    shell:
-        "python {input.script} --input '{input.data}' --output '{output.summary}' --plot '{output.plot}'"
+    run:
+        # Calculate directories within the run block
+        output_dir = os.path.dirname(output.summary)
+        plot_dir = os.path.dirname(output.plot)
+        # Use shell() function with f-string
+        shell(f"python {input.script} --input '{input.data}' --output_dir '{output_dir}' --plot_dir '{plot_dir}'")
 
 rule baseline_oasis:
     input:
@@ -41,5 +49,8 @@ rule baseline_oasis:
     output:
         plot="output_plots/baseline_oasis_roc_curve.png"
     threads: 1
-    shell:
-        "python {input.script} --input '{input.data}' --plot '{output.plot}'"
+    run:
+        # Calculate directory within the run block
+        plot_dir = os.path.dirname(output.plot)
+        # Use shell() function with f-string
+        shell(f"python {input.script} --input '{input.data}' --plot_dir '{plot_dir}'")

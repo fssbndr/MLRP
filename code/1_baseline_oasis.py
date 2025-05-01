@@ -5,10 +5,20 @@ import matplotlib.pyplot as plt
 from sklearn.metrics import roc_curve, auc
 
 # parse command line arguments
-parser = argparse.ArgumentParser(description="Run baseline OASIS ROC analysis.")
-parser.add_argument("--input", required=True, help="Path to the input parquet data file.")
-parser.add_argument("--plot", required=True, help="Path for the output ROC curve plot.")
+parser = argparse.ArgumentParser()
+parser.add_argument(
+    "--input", required=True, help="Path to the input parquet data file."
+)
+parser.add_argument(
+    "--plot_dir", required=True, help="Path to the output directory for the ROC curve plot."
+)
 args = parser.parse_args()
+
+# Define output plot path
+plot_output_path = os.path.join(args.plot_dir, "baseline_oasis_roc_curve.png")
+
+# Ensure plot output directory exists
+os.makedirs(args.plot_dir, exist_ok=True)
 
 # load the data using the provided path
 data = pl.read_parquet(args.input)
@@ -33,20 +43,15 @@ roc_auc = auc(fpr, tpr)
 
 # Plot ROC curve
 plt.figure()
-plt.plot(fpr, tpr, lw=2, label=f'ROC curve (AUC = {roc_auc:.2f})')
-plt.plot([0, 1], [0, 1], color='black', lw=2, linestyle='--')
+plt.plot(fpr, tpr, lw=2, label=f"ROC curve (AUC = {roc_auc:.2f})")
+plt.plot([0, 1], [0, 1], color="black", lw=2, linestyle="--")
 plt.xlim([0.0, 1.0])
 plt.ylim([0.0, 1.05])
-plt.xlabel('False Positive Rate')
-plt.ylabel('True Positive Rate')
-plt.title('Receiver Operating Characteristic (ROC) Curve - OASIS Baseline')
+plt.xlabel("False Positive Rate")
+plt.ylabel("True Positive Rate")
+plt.title("Receiver Operating Characteristic (ROC) Curve - OASIS Baseline")
 plt.legend(loc="lower right")
 
-# Ensure plot output directory exists
-output_dir_plot = os.path.dirname(args.plot)
-if output_dir_plot:
-    os.makedirs(output_dir_plot, exist_ok=True)
-
 # Save the plot
-plt.savefig(args.plot)
+plt.savefig(plot_output_path) # Use defined path
 plt.close()
