@@ -1,3 +1,8 @@
+repos/*
+papers/*
+input_data/*
+output_data/*
+output_plots/*
 .snakemake/*
 
 ### macOS ###
