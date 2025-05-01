@@ -7,7 +7,8 @@ rule all:
         log_summary="output_data/baseline_logistic_summary.txt",
         log_processed="output_data/baseline_logistic_processed.parquet",
         log_plot="output_plots/baseline_logistic_roc_curve.png",
-        oasis_plot="output_plots/baseline_oasis_roc_curve.png"
+        oasis_plot="output_plots/baseline_oasis_roc_curve.png",
+        tabpfn_plot="output_plots/tabpfn_roc_curve.png"
 
 rule create_data:
     input:
@@ -51,6 +52,19 @@ rule baseline_oasis:
     threads: 1
     run:
         # Calculate directory within the run block
+        plot_dir = os.path.dirname(output.plot)
+        # Use shell() function with f-string
+        shell(f"python {input.script} --input '{input.data}' --plot_dir '{plot_dir}'")
+
+rule tabpfn:
+    input:
+        script="code/2_tabpfn.py",
+        data="output_data/baseline_logistic_processed.parquet"
+    output:
+        plot="output_plots/tabpfn_roc_curve.png"
+    threads: 1
+    run:
+        # Calculate directories within the run block
         plot_dir = os.path.dirname(output.plot)
         # Use shell() function with f-string
         shell(f"python {input.script} --input '{input.data}' --plot_dir '{plot_dir}'")
