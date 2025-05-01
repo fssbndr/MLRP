@@ -7,6 +7,7 @@ rule all:
         log_summary="output_data/baseline_logistic_summary.txt",
         log_processed="output_data/baseline_logistic_processed.parquet",
         log_plot="output_plots/baseline_logistic_roc_curve.png",
+        xgboost_plot="output_plots/baseline_xgboost_roc_curve.png",
         oasis_plot="output_plots/baseline_oasis_roc_curve.png",
         tabpfn_plot="output_plots/tabpfn_roc_curve.png"
 
@@ -42,6 +43,19 @@ rule baseline_logistic:
         plot_dir = os.path.dirname(output.plot)
         # Use shell() function with f-string
         shell(f"python {input.script} --input '{input.data}' --output_dir '{output_dir}' --plot_dir '{plot_dir}'")
+
+rule baseline_xgboost:
+    input:
+        script="code/1_baseline_xgboost.py",
+        data="output_data/baseline_logistic_processed.parquet"
+    output:
+        plot="output_plots/baseline_xgboost_roc_curve.png"
+    threads: 1
+    run:
+        # Calculate directory within the run block
+        plot_dir = os.path.dirname(output.plot)
+        # Use shell() function with f-string
+        shell(f"python {input.script} --input '{input.data}' --plot_dir '{plot_dir}'")
 
 rule baseline_oasis:
     input:
