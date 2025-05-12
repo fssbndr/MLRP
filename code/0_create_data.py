@@ -1,19 +1,22 @@
-import polars as pl
-import yaml
 import argparse
 import os
+
+import polars as pl
+import yaml
 
 SECONDS_IN_A_DAY = 86400
 
 STAY_ID = "Global ICU Stay ID"
 TIME_COL = "Time Relative to Admission (seconds)"
 
-# --- Argument Parsing ---
 parser = argparse.ArgumentParser(description="Create the combined dataset.")
-parser.add_argument("--config", required=True, help="Path to the config YAML file.")
-parser.add_argument("--output", required=True, help="Path for the output parquet file.")
+parser.add_argument(
+    "--config", required=True, help="Path to the config YAML file."
+)
+parser.add_argument(
+    "--output", required=True, help="Path for the output parquet file."
+)
 args = parser.parse_args()
-# --- End Argument Parsing ---
 
 # load the config file using the provided path
 with open(args.config, "r") as f:
@@ -47,9 +50,10 @@ VENTILATION = pl.scan_parquet(
 
 # combine the reprodICU versions demo data of MIMIC-III and MIMIC-IV into one
 # singular dataframe
-ID = info.filter(
-    pl.col("Source Dataset").is_in(["MIMIC-III", "MIMIC-IV"])
-).select("Global ICU Stay ID")
+# ID = info.filter(
+#     pl.col("Source Dataset").is_in(["MIMIC-III", "MIMIC-IV", "eICU-CRD"])
+# ).select("Global ICU Stay ID")
+ID = info.select("Global ICU Stay ID")
 
 data = (
     info.join(vitals, on=STAY_ID, how="left", coalesce=True)

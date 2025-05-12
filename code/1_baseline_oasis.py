@@ -1,8 +1,9 @@
-import polars as pl
-import os
 import argparse
+import os
+
 import matplotlib.pyplot as plt
-from sklearn.metrics import roc_curve, auc
+import polars as pl
+from sklearn.metrics import auc, roc_curve
 
 # parse command line arguments
 parser = argparse.ArgumentParser()
@@ -10,7 +11,9 @@ parser.add_argument(
     "--input", required=True, help="Path to the input parquet data file."
 )
 parser.add_argument(
-    "--plot_dir", required=True, help="Path to the output directory for the ROC curve plot."
+    "--plot_dir",
+    required=True,
+    help="Path to the output directory for the ROC curve plot.",
 )
 args = parser.parse_args()
 
@@ -21,11 +24,13 @@ plot_output_path = os.path.join(args.plot_dir, "baseline_oasis_roc_curve.png")
 os.makedirs(args.plot_dir, exist_ok=True)
 
 # load the data using the provided path
-data = pl.read_parquet(args.input)
-data = data.select(
-    "Global ICU Stay ID",
-    "Mortality in ICU",
-    "OASIS ICU Mortality Rate",
+data = (
+    pl.read_parquet(args.input)
+    .group_by("Global ICU Stay ID")
+    .agg(
+        pl.col("Mortality in ICU").first(),
+        pl.col("OASIS ICU Mortality Rate").first(),
+    )
 )
 
 ### SAVE ROC CURVE ###
@@ -53,5 +58,5 @@ plt.title("Receiver Operating Characteristic (ROC) Curve - OASIS Baseline")
 plt.legend(loc="lower right")
 
 # Save the plot
-plt.savefig(plot_output_path) # Use defined path
+plt.savefig(plot_output_path)  # Use defined path
 plt.close()

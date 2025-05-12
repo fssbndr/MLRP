@@ -1,91 +1,52 @@
-import polars as pl
-import statsmodels.api as sm
-import os
 import argparse
+import os
+
 import matplotlib.pyplot as plt
-from sklearn.metrics import roc_curve, auc
+import polars as pl
+from sklearn.metrics import auc, roc_curve
+
+import statsmodels.api as sm
 
 # parse command line arguments
 parser = argparse.ArgumentParser()
 parser.add_argument(
-    "--input", required=True, help="Path to the input parquet data file."
+    "--input",
+    required=True,
+    help="Path to the input processed parquet data file.",
 )
 parser.add_argument(
-    "--output_dir", required=True, help="Path to the output directory for summary and processed data."
+    "--output_dir",
+    required=True,
+    help="Path to the output directory for summary.",
 )
 parser.add_argument(
-    "--plot_dir", required=True, help="Path to the output directory for the ROC curve plot."
+    "--plot_dir",
+    required=True,
+    help="Path to the output directory for the ROC curve plot.",
 )
 args = parser.parse_args()
 
 # Define output file paths
-summary_output_path = os.path.join(args.output_dir, "baseline_logistic_summary.txt")
-parquet_output_path = os.path.join(args.output_dir, "baseline_logistic_processed.parquet")
-plot_output_path = os.path.join(args.plot_dir, "baseline_logistic_roc_curve.png")
+summary_output_path = os.path.join(
+    args.output_dir, "baseline_logistic_summary.txt"
+)
+plot_output_path = os.path.join(
+    args.plot_dir, "baseline_logistic_roc_curve.png"
+)
 
 # Ensure output directories exist
 os.makedirs(args.output_dir, exist_ok=True)
 os.makedirs(args.plot_dir, exist_ok=True)
 
-# load the data using the provided path
+# ------------------------------------------------------------------------------
+# load the processed data using the provided path
 data = pl.read_parquet(args.input)
-data = data.select(
-    "Global ICU Stay ID",
-    "Mortality in ICU",
-    "Pre-ICU Length of Stay (days)",
-    "Admission Age (years)",
-    "Glasgow coma score total",
-    "Heart rate",
-    pl.coalesce(
-        pl.col("Invasive mean arterial pressure"),
-        pl.col("Non-invasive mean arterial pressure"),
-        (
-            2 * pl.col("Invasive systolic arterial pressure")
-            + pl.col("Invasive diastolic arterial pressure")
-        )
-        / 3,
-        (
-            2 * pl.col("Non-invasive systolic arterial pressure")
-            + pl.col("Non-invasive diastolic arterial pressure")
-        )
-        / 3,
-    ).alias("Mean arterial pressure"),
-    pl.sum_horizontal(
-        "Fluid output urine in and out urethral catheter",
-        "Fluid output urine nephrostomy",
-        "Urine output",
-    ).alias("Urine output"),
-    "Respiratory rate",
-    "Temperature",
-    "Admission Type",
-    "Admission Urgency",
-    "is mechanically ventilated",
-)
-
-# aggregate the mean / max / min values for each patient
-data = data.group_by("Global ICU Stay ID").agg(
-    pl.col("Mortality in ICU").first(),  # Keep mortality for outcome
-    pl.col("Pre-ICU Length of Stay (days)").min().alias("Pre-ICU LOS (days)"),
-    pl.col("Admission Age (years)").min().alias("Age (years)"),
-    pl.col("Glasgow coma score total").max().alias("GCS"),
-    pl.col("Heart rate").max().alias("HR"),
-    pl.col("Mean arterial pressure").max().alias("MAP"),
-    pl.col("Urine output").sum().alias("Urine output (ml)"),
-    pl.col("Respiratory rate").max().alias("RR"),
-    pl.col("Temperature").max().alias("Temp (C)"),
-    pl.col("Admission Type").first().alias("Admission Type"),
-    pl.col("Admission Urgency").first().alias("Admission Urgency"),
-    pl.col("is mechanically ventilated").max().alias("MechVent"),
-)
-
-# save the processed data to a parquet file
-data.write_parquet(parquet_output_path)
 
 # filter out rows where the outcome variable is null
 data = data.filter(pl.col("Mortality in ICU").is_not_null())
 
-# fit the logistic regression model with ICU mortality as the outcome
-X = data.select(
+# Prepare features and target
+X_all_df = data.select(
     "Pre-ICU LOS (days)",
     "Age (years)",
     "GCS",
@@ -94,46 +55,65 @@ X = data.select(
     "Urine output (ml)",
     "RR",
     "Temp (C)",
-    "Admission Type",  # Categorical
-    "Admission Urgency",  # Categorical
+    "Admission Type",
+    "Admission Urgency",
     "MechVent",
 )
-y = data.select("Mortality in ICU").to_numpy().flatten()
+y_all_np = data.select("Mortality in ICU").to_numpy().flatten()
 
-# Fill null values in X before converting to numpy or creating dummies
-X = X.fill_null(0)
+# Fill null values
+X_all_df = X_all_df.fill_null(0)
 
 # Convert categorical columns to dummy variables
 categorical_cols = ["Admission Type", "Admission Urgency"]
-X = X.to_dummies(columns=categorical_cols, drop_first=True)
+X_all_df_dummies = X_all_df.to_dummies(
+    columns=categorical_cols, drop_first=True
+)
 
-# Now X should be all numeric
-X = sm.add_constant(X.to_numpy())
-model = sm.Logit(y, X)
+# Get train/test masks from the 'split_80_20' column
+train_mask = (data["split_80_20"] == "train").to_numpy()
+test_mask = (data["split_80_20"] == "test").to_numpy()
+
+# Split features and target
+X_train_np = X_all_df_dummies.filter(pl.Series(train_mask)).to_numpy()
+X_test_np = X_all_df_dummies.filter(pl.Series(test_mask)).to_numpy()
+
+y_train_np = y_all_np[train_mask]
+y_test_np = y_all_np[test_mask]
+
+################################################################################
+# Convert to numpy and add constant for train and test sets
+X_train_final_np = sm.add_constant(X_train_np)
+X_test_final_np = sm.add_constant(X_test_np)
+
+# LOGISTIC REGRESSION MODEL
+# Fit the model on the training data
+model = sm.Logit(y_train_np, X_train_final_np)
 result = model.fit(disp=0)
 
 ### SAVE SUMMARY ###
-# Write summary to file using the constructed path
+# Write summary to file using the constructed path (summary is from model trained on training data)
 with open(summary_output_path, "w") as f:
     f.write(str(result.summary()))
+################################################################################
 
 ### SAVE ROC CURVE ###
-# Predict probabilities
-y_pred_prob = result.predict(X)
+# Predict probabilities on the test set
+y_pred_prob_test = result.predict(X_test_final_np)
 
-# Calculate ROC curve
-fpr, tpr, thresholds = roc_curve(y, y_pred_prob)
+# Calculate ROC curve using test data
+fpr, tpr, thresholds = roc_curve(y_test_np, y_pred_prob_test)
 roc_auc = auc(fpr, tpr)
 
 # Plot ROC curve
 plt.figure()
-plt.plot(fpr, tpr, lw=2, label=f"ROC curve (AUC = {roc_auc:.2f})")
+plt.plot(fpr, tpr, lw=2, label=f"ROC curve (AUC = {roc_auc:.2f}) on Test Set")
 plt.plot([0, 1], [0, 1], color="black", lw=2, linestyle="--")
 plt.xlim([0.0, 1.0])
 plt.ylim([0.0, 1.05])
 plt.xlabel("False Positive Rate")
 plt.ylabel("True Positive Rate")
-plt.title("Receiver Operating Characteristic (ROC) Curve")
+plt.title("Receiver Operating Characteristic (ROC) Curve - Test Set")
 plt.legend(loc="lower right")
 
 # Save the plot

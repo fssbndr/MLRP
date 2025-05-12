@@ -4,8 +4,8 @@ configfile: "config.yaml"
 
 rule all:
     input:
+        processed_data="output_data/processed_data.parquet",
         log_summary="output_data/baseline_logistic_summary.txt",
-        log_processed="output_data/baseline_logistic_processed.parquet",
         log_plot="output_plots/baseline_logistic_roc_curve.png",
         xgboost_plot="output_plots/baseline_xgboost_roc_curve.png",
         oasis_plot="output_plots/baseline_oasis_roc_curve.png",
@@ -23,18 +23,29 @@ rule create_data:
         # resp=config["reprodicu_path"] + "timeseries_resp.parquet",
         # inout=config["reprodicu_path"] + "timeseries_intakeoutput.parquet"
     output:
-        config["inputdata_path"] + "data.parquet"
+        data=config["inputdata_path"] + "data.parquet"
     threads: 1
-    shell:
-        "python {input.script} --config '{input.config}' --output '{output}'"
+    run:
+        # Use shell() function with f-string
+        shell(f"python {input.script} --config '{input.config}' --output '{output.data}'")
+
+rule process_data:
+    input:
+        script="code/0_process_data.py",
+        raw_data=config["inputdata_path"] + "data.parquet"
+    output:
+        processed_data="output_data/processed_data.parquet"
+    threads: 1
+    run:
+        # Use shell() function with f-string
+        shell(f"python {input.script} --input '{input.raw_data}' --output '{output.processed_data}'")
 
 rule baseline_logistic:
     input:
         script="code/1_baseline_logistic.py",
-        data=config["inputdata_path"] + "data.parquet"
+        data="output_data/processed_data.parquet"
     output:
         summary="output_data/baseline_logistic_summary.txt",
-        processed="output_data/baseline_logistic_processed.parquet",
         plot="output_plots/baseline_logistic_roc_curve.png"
     threads: 1
     run:
@@ -47,7 +58,7 @@ rule baseline_logistic:
 rule baseline_xgboost:
     input:
         script="code/1_baseline_xgboost.py",
-        data="output_data/baseline_logistic_processed.parquet"
+        data="output_data/processed_data.parquet"
     output:
         plot="output_plots/baseline_xgboost_roc_curve.png"
     threads: 1
@@ -73,7 +84,7 @@ rule baseline_oasis:
 rule tabpfn:
     input:
         script="code/2_tabpfn.py",
-        data="output_data/baseline_logistic_processed.parquet"
+        data="output_data/processed_data.parquet"
     output:
         plot="output_plots/tabpfn_roc_curve.png"
     threads: 1
