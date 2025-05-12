@@ -3,9 +3,12 @@ import os
 
 import matplotlib.pyplot as plt
 import polars as pl
+import torch
 from sklearn.metrics import auc, roc_curve
 
 from tabpfn import TabPFNRegressor
+
+device = "mps" if torch.backends.mps.is_available() else "cpu"
 
 # parse command line arguments
 parser = argparse.ArgumentParser()
@@ -73,7 +76,7 @@ y_test_np = y_all_np[test_mask]
 ################################################################################
 # TABPFN MODEL
 # Instantiate and fit the TabPFN Regressor on training data
-regressor = TabPFNRegressor()
+regressor = TabPFNRegressor()  # TabPFNRegressor(device=device)
 regressor.fit(X_train_np, y_train_np)
 ################################################################################
 

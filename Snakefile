@@ -31,7 +31,7 @@ rule create_data:
 
 rule process_data:
     input:
-        script="code/0_process_data.py",
+        script="code/1_process_data.py",
         raw_data=config["inputdata_path"] + "data.parquet"
     output:
         processed_data="output_data/processed_data.parquet"
@@ -42,7 +42,7 @@ rule process_data:
 
 rule baseline_logistic:
     input:
-        script="code/1_baseline_logistic.py",
+        script="code/2_baseline_logistic.py",
         data="output_data/processed_data.parquet"
     output:
         summary="output_data/baseline_logistic_summary.txt",
@@ -57,7 +57,7 @@ rule baseline_logistic:
 
 rule baseline_xgboost:
     input:
-        script="code/1_baseline_xgboost.py",
+        script="code/2_baseline_xgboost.py",
         data="output_data/processed_data.parquet"
     output:
         plot="output_plots/baseline_xgboost_roc_curve.png"
@@ -70,7 +70,7 @@ rule baseline_xgboost:
 
 rule baseline_oasis:
     input:
-        script="code/1_baseline_oasis.py",
+        script="code/2_baseline_oasis.py",
         data=config["inputdata_path"] + "data.parquet"
     output:
         plot="output_plots/baseline_oasis_roc_curve.png"
@@ -83,7 +83,7 @@ rule baseline_oasis:
 
 rule tabpfn:
     input:
-        script="code/2_tabpfn.py",
+        script="code/3_tabpfn.py",
         data="output_data/processed_data.parquet"
     output:
         plot="output_plots/tabpfn_roc_curve.png"

@@ -83,7 +83,7 @@ data = (
     )
     .with_columns(
         pl.when(
-            pl.int_range(0, pl.len()).over("Source Dataset")
+            pl.int_range(0, pl.len()).shuffle(seed=42).over("Source Dataset")
             < (0.8 * pl.len().over("Source Dataset")).round().cast(int)
         )
         .then(pl.lit("train"))
