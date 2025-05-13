@@ -15,6 +15,11 @@ parser.add_argument(
     help="Path to the input processed parquet data file.",
 )
 parser.add_argument(
+    "--output_dir",
+    required=True,
+    help="Path to the output directory for model.",
+)
+parser.add_argument(
     "--plot_dir",
     required=True,
     help="Path to the output directory for the ROC curve plot.",
@@ -22,6 +27,7 @@ parser.add_argument(
 args = parser.parse_args()
 
 # Define output file paths
+model_output_path = os.path.join(args.output_dir, "baseline_xgboost_model.json")
 plot_output_path = os.path.join(args.plot_dir, "baseline_xgboost_roc_curve.png")
 
 # Ensure output directories exist
@@ -75,6 +81,9 @@ y_test_np = y_all_np[test_mask]
 # Instantiate and fit the XGBoost Classifier on training data
 model = xgb.XGBClassifier()
 model.fit(X_train_np, y_train_np)
+
+### SAVE MODEL ###
+model.save_model(model_output_path)
 ################################################################################
 
 ### SAVE ROC CURVE ###

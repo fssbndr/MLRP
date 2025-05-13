@@ -60,13 +60,15 @@ rule baseline_xgboost:
         script="code/2_baseline_xgboost.py",
         data="output_data/processed_data.parquet"
     output:
+        model="output_data/baseline_xgboost_model.json",
         plot="output_plots/baseline_xgboost_roc_curve.png"
     threads: 1
     run:
-        # Calculate directory within the run block
+        # Calculate directories within the run block
+        output_dir = os.path.dirname(output.model)
         plot_dir = os.path.dirname(output.plot)
         # Use shell() function with f-string
-        shell(f"python {input.script} --input '{input.data}' --plot_dir '{plot_dir}'")
+        shell(f"python {input.script} --input '{input.data}' --output_dir '{output_dir}' --plot_dir '{plot_dir}'")
 
 rule baseline_oasis:
     input:
