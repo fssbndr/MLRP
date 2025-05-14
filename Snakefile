@@ -9,7 +9,8 @@ rule all:
         log_plot="output_plots/baseline_logistic_roc_curve.png",
         xgboost_plot="output_plots/baseline_xgboost_roc_curve.png",
         oasis_plot="output_plots/baseline_oasis_roc_curve.png",
-        tabpfn_plot="output_plots/tabpfn_roc_curve.png"
+        tabpfn_plot="output_plots/tabpfn_roc_curve.png",
+        serialized_data="output_data/serialized_data.txt"
 
 rule create_data:
     input:
@@ -95,3 +96,16 @@ rule tabpfn:
         plot_dir = os.path.dirname(output.plot)
         # Use shell() function with f-string
         shell(f"python {input.script} --input '{input.data}' --plot_dir '{plot_dir}'")
+
+rule serialize_data:
+    input:
+        script="code/4_serialize_data.py",
+        data="output_data/processed_data.parquet"
+    output:
+        serialized_text="output_data/serialized_data.txt"
+    threads: 1
+    run:
+        # Calculate directory within the run block
+        serialized_dir = os.path.dirname(output.serialized_text)
+        # Use shell() function with f-string
+        shell(f"python {input.script} --input '{input.data}' --output_dir '{serialized_dir}'")
