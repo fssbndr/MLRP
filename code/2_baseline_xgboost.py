@@ -31,6 +31,7 @@ model_output_path = os.path.join(args.output_dir, "baseline_xgboost_model.json")
 plot_output_path = os.path.join(args.plot_dir, "baseline_xgboost_roc_curve.png")
 
 # Ensure output directories exist
+os.makedirs(args.output_dir, exist_ok=True)
 os.makedirs(args.plot_dir, exist_ok=True)
 
 # ------------------------------------------------------------------------------

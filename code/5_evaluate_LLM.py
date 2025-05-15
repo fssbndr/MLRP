@@ -1,0 +1,264 @@
+import argparse
+import os
+import re
+
+import matplotlib.pyplot as plt
+import pandas as pd
+from sklearn.metrics import (
+    accuracy_score,
+    auc,
+    confusion_matrix,
+    f1_score,
+    roc_auc_score,
+    roc_curve,
+)
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+
+def load_serialized_data(file_path):
+    """Loads serialized summaries and extracts Global ICU Stay ID."""
+    summaries = []
+    with open(file_path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            match = re.search(r"Patient ID:\s*(\S+?)\s*\.", line)
+            if match:
+                try:
+                    icu_id = match.group(1)
+                    summaries.append(
+                        {"global_icu_stay_id": icu_id, "summary_text": line}
+                    )
+                except ValueError:
+                    print(f"Warning: Could not parse ID from line: {line}")
+            else:
+                print(f"Warning: Could not find 'Patient ID: ...' pattern in line: {line}") # fmt: skip
+
+    if not summaries:
+        # Raise an error if no summaries were found for some reason
+        raise ValueError(
+            f"No summaries could be loaded from {file_path}. "
+            "Check file content, format, and Patient ID pattern."
+        )
+    return pd.DataFrame(summaries)
+
+
+def load_processed_data(file_path):
+    """Loads processed data, including target variable and train/test split."""
+    df = pd.read_parquet(file_path).rename(
+        columns={
+            "Global ICU Stay ID": "global_icu_stay_id",
+            "Mortality in ICU": "mortality_in_icu",
+        }
+    )
+
+    required_cols = ["global_icu_stay_id", "mortality_in_icu", "split_80_20"]
+    missing_cols = [col for col in required_cols if col not in df.columns]
+    if missing_cols:
+        # Raise an error if columns are missing for some reason
+        raise ValueError(f"Error: Missing required columns in processed data: {missing_cols}") # fmt: skip
+
+    return df[required_cols]
+
+
+def evaluate_model(test_df: pd.DataFrame, model_name: str):
+    """Evaluates a given LLM model."""
+    print(f"Evaluating {model_name}...")
+
+    model = AutoModelForCausalLM.from_pretrained(
+        model_name,
+        torch_dtype="auto",
+        device_map="auto",
+    )
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+
+    # Set pad_token_id if not set
+    if tokenizer.pad_token_id is None:
+        tokenizer.pad_token_id = tokenizer.eos_token_id
+
+    predictions = []
+    actual_labels = []
+    device = model.device
+
+    for index, row in test_df.iterrows():
+        summary_text = row["summary_text"]
+        actual_label = row["mortality_in_icu"]
+
+        prompt = (
+            f"ICU Stay Summary:\n{summary_text}\n\n"
+            "Based on this summary, will the patient die in the ICU? "
+            "Your answer must be exactly 'Yes' or 'No', nothing else. "
+            "Include no additional text or explanation."
+        )
+
+        model_inputs = tokenizer(prompt, return_tensors="pt").to(device)
+        generated_ids = model.generate(
+            model_inputs.input_ids,
+            attention_mask=model_inputs.attention_mask,  # Pass attention_mask
+            max_new_tokens=15,
+            pad_token_id=tokenizer.pad_token_id,
+        )
+        response_text = tokenizer.batch_decode(
+            generated_ids, skip_special_tokens=True
+        )[0]
+
+        answer_part = response_text[len(prompt) :].strip().lower()
+        predicted_label = 0  # Default to No
+        if "yes" in answer_part:
+            predicted_label = 1
+        elif "no" in answer_part:
+            predicted_label = 0
+        else:
+            print(
+                f"Warning: Model {model_name} produced an unclear answer: "
+                f"'{answer_part}' for summary ID {row.get('global_icu_stay_id', 'Unknown')}."
+                " Interpreting as 'No'."
+            )
+
+        predictions.append(predicted_label)
+        actual_labels.append(int(actual_label))
+
+    return actual_labels, predictions
+
+
+# parse command line arguments
+parser = argparse.ArgumentParser(
+    description="Evaluate a specific LLM on serialized ICU stay summaries."
+)
+parser.add_argument(
+    "--serialized_data_path",
+    type=str,
+    required=True,
+    help="Path to the serialized_data.txt file.",
+)
+parser.add_argument(
+    "--processed_data_path",
+    type=str,
+    required=True,
+    help="Path to the processed_data.parquet file (for split and target variable).",
+)
+parser.add_argument(
+    "--output_dir",
+    type=str,
+    required=True,
+    help="Directory to save the evaluation results CSV file.",
+)
+parser.add_argument(
+    "--plot_dir",
+    type=str,
+    required=True,
+    help="Directory to save the ROC curve plot.",
+)
+parser.add_argument(
+    "--model",
+    type=str,
+    required=True,
+    help="File ID of the model to evaluate (e.g., 'qwen_0_5b').",
+)
+
+
+args = parser.parse_args()
+
+# Define output file paths
+output_csv_path = os.path.join(args.output_dir, f"llm_{args.model}_results.csv")
+plot_output_path = os.path.join(
+    args.plot_dir, f"llm_{args.model}_roc_curve.png"
+)
+
+# Ensure output directories exist
+os.makedirs(args.output_dir, exist_ok=True)
+os.makedirs(args.plot_dir, exist_ok=True)
+
+# ------------------------------------------------------------------------------
+# Load serialized data
+serialized_df = load_serialized_data(args.serialized_data_path)
+processed_df = load_processed_data(args.processed_data_path)
+
+# Merge dataframes
+merged_df = pd.merge(
+    processed_df,
+    serialized_df,
+    on="global_icu_stay_id",
+    how="inner",
+)
+
+# Drop rows with missing target variable
+initial_rows = len(merged_df)
+merged_df.dropna(subset=["mortality_in_icu"], inplace=True)
+rows_dropped = initial_rows - len(merged_df)
+print(f"Dropped {rows_dropped} rows due to missing target variable 'mortality_in_icu'.") # fmt: skip
+
+# Split into train and test sets
+train_df = merged_df[merged_df["split_80_20"] == "train"].copy()
+test_df = merged_df[merged_df["split_80_20"] == "test"].copy()
+
+# Define models to evaluate
+model_configs = [
+    {"name": "Qwen/Qwen2.5-0.5B-Instruct",       "id": "qwen_0_5b"},
+    {"name": "meta-llama/Llama-3.2-1B-Instruct", "id": "llama_3_2_1b"},
+    {"name": "Qwen/Qwen2.5-1.5B-Instruct",       "id": "qwen_1_5b"},
+] # fmt: skip
+
+# Select the target model
+model_config = None
+for m_config in model_configs:
+    if m_config["id"] == args.model:
+        model_config = m_config
+        break
+
+model_results = {}
+
+################################################################################
+# EVALUATE LLM
+print(f"--- Starting evaluation for {model_config['name']} ---")
+
+actual_labels, predictions = evaluate_model(
+    test_df=test_df,
+    model_name=model_config["name"],
+)
+
+# Stop execution if no predictions were made
+if not actual_labels or not predictions:
+    print(f"Evaluation failed for {model_config['name']}.")
+    exit()
+
+print(f"--- Finished evaluation for {model_config['name']} ---")
+################################################################################
+
+### SAVE RESULTS ###
+results_df = pd.DataFrame.from_dict(model_results, orient="index")
+results_df = results_df.reset_index().rename(columns={"index": "model_name"})
+
+# Ensure model_id is included for easier aggregation if needed, though model_name is primary key
+results_df["model_id"] = model_config["id"]
+
+results_df.to_csv(output_csv_path, index=False)
+print(f"Evaluation results for {model_config['name']} saved to {output_csv_path}") # fmt: skip
+
+### CALCULATE METRICS ###
+model_results[model_config["name"]] = {
+    "accuracy": accuracy_score(actual_labels, predictions),
+    "auc": roc_auc_score(actual_labels, predictions),
+    "f1": f1_score(actual_labels, predictions, zero_division=0),
+    "confusion_matrix": confusion_matrix(actual_labels, predictions).tolist(),
+}
+
+### SAVE ROC CURVE ###
+# Calculate ROC curve
+fpr, tpr, thresholds = roc_curve(actual_labels, predictions)
+roc_auc_val = auc(fpr, tpr)
+
+plt.figure()
+plt.plot(fpr, tpr, lw=2, label=f"ROC curve (AUC = {roc_auc_val:.2f})")
+plt.plot([0, 1], [0, 1], color="black", lw=2, linestyle="--")
+plt.xlim([0.0, 1.0])
+plt.ylim([0.0, 1.05])
+plt.xlabel("False Positive Rate")
+plt.ylabel("True Positive Rate")
+plt.title(f"ROC Curve - {model_config['name']} Test Set")
+plt.legend(loc="lower right")
+
+# Save the plot
+plt.savefig(plot_output_path)
+plt.close()

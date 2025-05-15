@@ -10,7 +10,11 @@ rule all:
         xgboost_plot="output_plots/baseline_xgboost_roc_curve.png",
         oasis_plot="output_plots/baseline_oasis_roc_curve.png",
         tabpfn_plot="output_plots/tabpfn_roc_curve.png",
-        serialized_data="output_data/serialized_data.txt"
+        serialized_data="output_data/serialized_data.txt",
+        llm_results="output_data/llm_evaluation_results.csv",
+        llm_qwen0_5_plot="output_plots/llm_qwen_0_5b_roc_curve.png",
+        llm_qwen1_5_plot="output_plots/llm_qwen_1_5b_roc_curve.png",
+        llm_llama_1_plot="output_plots/llm_llama_3_2_1b_roc_curve.png",
 
 rule create_data:
     input:
@@ -109,3 +113,76 @@ rule serialize_data:
         serialized_dir = os.path.dirname(output.serialized_text)
         # Use shell() function with f-string
         shell(f"python {input.script} --input '{input.data}' --output_dir '{serialized_dir}'")
+
+rule evaluate_llm_qwen_0_5b:
+    input:
+        script="code/5_evaluate_LLM.py",
+        serialized_data="output_data/serialized_data.txt",
+        processed_data="output_data/processed_data.parquet"
+    output:
+        results="output_data/llm_qwen_0_5b_results.csv",
+        plot="output_plots/llm_qwen_0_5b_roc_curve.png"
+    threads: 1
+    run:
+        model="qwen_0_5b"
+        # Calculate directories within the run block
+        output_dir = os.path.dirname(output.results)
+        plot_dir = os.path.dirname(output.plot)
+        # Use shell() function with f-string
+        shell(f"python {input.script} --serialized_data_path '{input.serialized_data}' --processed_data_path '{input.processed_data}' --output_dir '{output_dir}' --plot_dir '{plot_dir}' --model {model}")
+
+rule evaluate_llm_qwen_1_5b:
+    input:
+        script="code/5_evaluate_LLM.py",
+        serialized_data="output_data/serialized_data.txt",
+        processed_data="output_data/processed_data.parquet"
+    output:
+        results="output_data/llm_qwen_1_5b_results.csv",
+        plot="output_plots/llm_qwen_1_5b_roc_curve.png"
+    threads: 1
+    run:
+        model = "qwen_1_5b"
+        # Calculate directories within the run block
+        output_dir = os.path.dirname(output.results)
+        plot_dir = os.path.dirname(output.plot)
+        # Use shell() function with f-string
+        shell(f"python {input.script} --serialized_data_path '{input.serialized_data}' --processed_data_path '{input.processed_data}' --output_dir '{output_dir}' --plot_dir '{plot_dir}' --model {model}")
+
+rule evaluate_llm_llama_3_2_1b:
+    input:
+        script="code/5_evaluate_LLM.py",
+        serialized_data="output_data/serialized_data.txt",
+        processed_data="output_data/processed_data.parquet"
+    output:
+        results="output_data/llm_llama_3_2_1b_results.csv",
+        plot="output_plots/llm_llama_3_2_1b_roc_curve.png"
+    threads: 1
+    run:
+        model = "llama_3_2_1b"
+        # Calculate directories within the run block
+        output_dir = os.path.dirname(output.results)
+        plot_dir = os.path.dirname(output.plot)
+        # Use shell() function with f-string
+        shell(f"python {input.script} --serialized_data_path '{input.serialized_data}' --processed_data_path '{input.processed_data}' --output_dir '{output_dir}' --plot_dir '{plot_dir}' --model {model}")
+
+rule aggregate_llm_results:
+    input:
+        qwen0_5_results="output_data/llm_qwen_0_5b_results.csv",
+        qwen1_5_results="output_data/llm_qwen_1_5b_results.csv",
+        llama_results="output_data/llm_llama_3_2_1b_results.csv"
+    output:
+        aggregated_results="output_data/llm_evaluation_results.csv"
+    threads: 1
+    run:
+        # Simple aggregation: concatenate the CSVs. 
+        # A more sophisticated script could be used here for complex aggregation.
+        with open(output.aggregated_results, 'w') as outfile:
+            first_file = True
+            for fname in [input.qwen0_5_results, input.qwen1_5_results, input.llama_results]:
+                with open(fname, 'r') as infile:
+                    if first_file:
+                        outfile.write(infile.read())
+                        first_file = False
+                    else:
+                        next(infile) # Skip header for subsequent files
+                        outfile.write(infile.read())
