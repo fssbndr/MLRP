@@ -2,6 +2,11 @@ import os
 
 configfile: "config.yaml"
 
+# Define LLM models and number of shots
+LLM_MODEL_IDS = ["qwen_0_5b", "qwen_1_5b", "llama_3_2_1b"]
+# NUM_SHOT_VALUES will be [1, 2, 4, 8, 16, 32, 64, 128, 256] (2^0 to 2^8)
+NUM_SHOT_VALUES = [2**i for i in range(5)]
+
 rule all:
     input:
         processed_data="output_data/processed_data.parquet",
@@ -11,10 +16,12 @@ rule all:
         oasis_plot="output_plots/baseline_oasis_roc_curve.png",
         tabpfn_plot="output_plots/tabpfn_roc_curve.png",
         serialized_data="output_data/serialized_data.txt",
-        llm_results="output_data/llm_evaluation_results.csv",
-        llm_qwen0_5_plot="output_plots/llm_qwen_0_5b_roc_curve.png",
-        llm_qwen1_5_plot="output_plots/llm_qwen_1_5b_roc_curve.png",
-        llm_llama_1_plot="output_plots/llm_llama_3_2_1b_roc_curve.png",
+        llm_results="output_data/llm_evaluation_results.csv", # Aggregated results
+        llm_plots=expand(
+            "output_plots/llm_{model}_{shots}-shot_roc_curve.png",
+            model=LLM_MODEL_IDS,
+            shots=NUM_SHOT_VALUES
+        ),
 
 rule create_data:
     input:
@@ -114,75 +121,63 @@ rule serialize_data:
         # Use shell() function with f-string
         shell(f"python {input.script} --input '{input.data}' --output_dir '{serialized_dir}'")
 
-rule evaluate_llm_qwen_0_5b:
+rule evaluate_llm_with_shots:
     input:
         script="code/5_evaluate_LLM.py",
         serialized_data="output_data/serialized_data.txt",
         processed_data="output_data/processed_data.parquet"
     output:
-        results="output_data/llm_qwen_0_5b_results.csv",
-        plot="output_plots/llm_qwen_0_5b_roc_curve.png"
+        results="output_data/llm_{model}_{shots}-shot_results.csv",
+        plot="output_plots/llm_{model}_{shots}-shot_roc_curve.png"
     threads: 1
     run:
-        model="qwen_0_5b"
-        # Calculate directories within the run block
-        output_dir = os.path.dirname(output.results)
-        plot_dir = os.path.dirname(output.plot)
-        # Use shell() function with f-string
-        shell(f"python {input.script} --serialized_data_path '{input.serialized_data}' --processed_data_path '{input.processed_data}' --output_dir '{output_dir}' --plot_dir '{plot_dir}' --model {model}")
+        model_wc = wildcards.model
+        shots_wc = wildcards.shots
 
-rule evaluate_llm_qwen_1_5b:
-    input:
-        script="code/5_evaluate_LLM.py",
-        serialized_data="output_data/serialized_data.txt",
-        processed_data="output_data/processed_data.parquet"
-    output:
-        results="output_data/llm_qwen_1_5b_results.csv",
-        plot="output_plots/llm_qwen_1_5b_roc_curve.png"
-    threads: 1
-    run:
-        model = "qwen_1_5b"
         # Calculate directories within the run block
         output_dir = os.path.dirname(output.results)
         plot_dir = os.path.dirname(output.plot)
-        # Use shell() function with f-string
-        shell(f"python {input.script} --serialized_data_path '{input.serialized_data}' --processed_data_path '{input.processed_data}' --output_dir '{output_dir}' --plot_dir '{plot_dir}' --model {model}")
 
-rule evaluate_llm_llama_3_2_1b:
-    input:
-        script="code/5_evaluate_LLM.py",
-        serialized_data="output_data/serialized_data.txt",
-        processed_data="output_data/processed_data.parquet"
-    output:
-        results="output_data/llm_llama_3_2_1b_results.csv",
-        plot="output_plots/llm_llama_3_2_1b_roc_curve.png"
-    threads: 1
-    run:
-        model = "llama_3_2_1b"
-        # Calculate directories within the run block
-        output_dir = os.path.dirname(output.results)
-        plot_dir = os.path.dirname(output.plot)
-        # Use shell() function with f-string
-        shell(f"python {input.script} --serialized_data_path '{input.serialized_data}' --processed_data_path '{input.processed_data}' --output_dir '{output_dir}' --plot_dir '{plot_dir}' --model {model}")
+        # Run the script, directing its output to the temporary directories
+        shell(
+            f"python {input.script} "
+            f"--serialized_data_path '{input.serialized_data}' "
+            f"--processed_data_path '{input.processed_data}' "
+            f"--output_dir '{output_dir}' "
+            f"--plot_dir '{plot_dir}' "
+            f"--model '{model_wc}' "
+            f"--num_shots {shots_wc}"
+        )
 
 rule aggregate_llm_results:
     input:
-        qwen0_5_results="output_data/llm_qwen_0_5b_results.csv",
-        qwen1_5_results="output_data/llm_qwen_1_5b_results.csv",
-        llama_results="output_data/llm_llama_3_2_1b_results.csv"
+        # Collect all individual results CSVs
+        results_list=expand(
+            "output_data/llm_{model}_{shots}-shot_results.csv",
+            model=LLM_MODEL_IDS,
+            shots=NUM_SHOT_VALUES
+        )
     output:
         aggregated_results="output_data/llm_evaluation_results.csv"
     threads: 1
     run:
-        # Simple aggregation: concatenate the CSVs. 
+        # Simple aggregation: concatenate the CSVs.
         # A more sophisticated script could be used here for complex aggregation.
         with open(output.aggregated_results, 'w') as outfile:
             first_file = True
-            for fname in [input.qwen0_5_results, input.qwen1_5_results, input.llama_results]:
-                with open(fname, 'r') as infile:
-                    if first_file:
-                        outfile.write(infile.read())
-                        first_file = False
-                    else:
-                        next(infile) # Skip header for subsequent files
-                        outfile.write(infile.read())
+            # Iterate over the list of all generated result files
+            for fname in input.results_list:
+                # Check if file exists and is not empty, as some runs might fail
+                if os.path.exists(fname) and os.path.getsize(fname) > 0:
+                    with open(fname, 'r') as infile:
+                        if first_file:
+                            outfile.write(infile.read())
+                            first_file = False
+                        else:
+                            try:
+                                next(infile) # Skip header for subsequent files
+                                outfile.write(infile.read())
+                            except StopIteration: # Handles empty files after header
+                                pass 
+                else:
+                    print(f"Warning: File {fname} not found or is empty, skipping aggregation.")

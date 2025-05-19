@@ -46,7 +46,7 @@ def load_serialized_data(file_path):
 
 def load_processed_data(file_path):
     """Loads processed data, including target variable and train/test split."""
-    df = pd.read_parquet(file_path).rename(
+    df = pd.read_parquet(file_path, dtype_backend="pyarrow").rename(
         columns={
             "Global ICU Stay ID": "global_icu_stay_id",
             "Mortality in ICU": "mortality_in_icu",
@@ -62,9 +62,14 @@ def load_processed_data(file_path):
     return df[required_cols]
 
 
-def evaluate_model(test_df: pd.DataFrame, model_name: str):
-    """Evaluates a given LLM model."""
-    print(f"Evaluating {model_name}...")
+def evaluate_model(
+    test_df: pd.DataFrame,
+    model_name: str,
+    train_df: pd.DataFrame,
+    num_shots: int,
+):
+    """Evaluates a given LLM model, optionally with few-shot examples."""
+    print(f"Evaluating {model_name} with {num_shots}-shot prompting...")
 
     model = AutoModelForCausalLM.from_pretrained(
         model_name,
@@ -81,16 +86,40 @@ def evaluate_model(test_df: pd.DataFrame, model_name: str):
     actual_labels = []
     device = model.device
 
-    for index, row in test_df.iterrows():
+    for _, row in test_df.iterrows():
         summary_text = row["summary_text"]
         actual_label = row["mortality_in_icu"]
 
-        prompt = (
+        prompt_parts = []
+
+        # Few-shot examples
+        if num_shots > 0 and not train_df.empty:
+            # Don't exceed available training examples
+            _num_shots = min(num_shots, len(train_df))
+            few_shot_examples = train_df.sample(
+                n=_num_shots, random_state=42  # Seed for reproducibility
+            )
+            for _, fs_row in few_shot_examples.iterrows():
+                fs_summary = fs_row["summary_text"]
+                fs_answer = "Yes" if fs_row["mortality_in_icu"] == 1 else "No"
+                fs_prompt_part = (
+                    f"ICU Stay Summary:\n{fs_summary}\n\n"
+                    "Based on this summary, will the patient die in the ICU?\n"
+                    f"Answer: {fs_answer}\n\n"
+                )
+                prompt_parts.append(fs_prompt_part)
+
+        # Actual query
+        query_prompt_part = (
             f"ICU Stay Summary:\n{summary_text}\n\n"
             "Based on this summary, will the patient die in the ICU? "
             "Your answer must be exactly 'Yes' or 'No', nothing else. "
-            "Include no additional text or explanation."
+            "Include no additional text or explanation.\n"
+            "Answer: "
         )
+        prompt_parts.append(query_prompt_part)
+
+        prompt = "".join(prompt_parts)
 
         model_inputs = tokenizer(prompt, return_tensors="pt").to(device)
         generated_ids = model.generate(
@@ -99,11 +128,15 @@ def evaluate_model(test_df: pd.DataFrame, model_name: str):
             max_new_tokens=15,
             pad_token_id=tokenizer.pad_token_id,
         )
+
+        # Answer comes after the full prompt (i.e. examples and actual query).
+        # -> slice to get only the generated answer part
         response_text = tokenizer.batch_decode(
             generated_ids, skip_special_tokens=True
         )[0]
 
         answer_part = response_text[len(prompt) :].strip().lower()
+
         predicted_label = 0  # Default to No
         if "yes" in answer_part:
             predicted_label = 1
@@ -113,7 +146,9 @@ def evaluate_model(test_df: pd.DataFrame, model_name: str):
             print(
                 f"Warning: Model {model_name} produced an unclear answer: "
                 f"'{answer_part}' for summary ID {row.get('global_icu_stay_id', 'Unknown')}."
-                " Interpreting as 'No'."
+                " Interpreting as 'No'.\n"
+                f"Actual label: {actual_label}\n"
+                f"Full response: {response_text}"
             )
 
         predictions.append(predicted_label)
@@ -156,14 +191,22 @@ parser.add_argument(
     required=True,
     help="File ID of the model to evaluate (e.g., 'qwen_0_5b').",
 )
+parser.add_argument(
+    "--num_shots",
+    type=int,
+    default=0,
+    help="Number of few-shot examples to use (default: 0 for zero-shot).",
+)
 
 
 args = parser.parse_args()
 
 # Define output file paths
-output_csv_path = os.path.join(args.output_dir, f"llm_{args.model}_results.csv")
+output_csv_path = os.path.join(
+    args.output_dir, f"llm_{args.model}_{args.num_shots}-shot_results.csv"
+)
 plot_output_path = os.path.join(
-    args.plot_dir, f"llm_{args.model}_roc_curve.png"
+    args.plot_dir, f"llm_{args.model}_{args.num_shots}-shot_roc_curve.png"
 )
 
 # Ensure output directories exist
@@ -216,6 +259,8 @@ print(f"--- Starting evaluation for {model_config['name']} ---")
 actual_labels, predictions = evaluate_model(
     test_df=test_df,
     model_name=model_config["name"],
+    train_df=train_df,
+    num_shots=args.num_shots,
 )
 
 # Stop execution if no predictions were made
