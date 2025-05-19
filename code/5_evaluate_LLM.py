@@ -94,12 +94,25 @@ def evaluate_model(
 
         # Few-shot examples
         if num_shots > 0 and not train_df.empty:
-            # Don't exceed available training examples
-            _num_shots = min(num_shots, len(train_df))
-            few_shot_examples = train_df.sample(
-                n=_num_shots, random_state=42  # Seed for reproducibility
+            died_df = train_df[train_df["mortality_in_icu"] == 1]
+            survived_df = train_df[train_df["mortality_in_icu"] == 0]
+
+            n_sample_died = min(num_shots, len(died_df))
+            n_sample_died = min(num_shots, len(survived_df))
+            
+            few_shot_list = [
+                died_df.sample(n=n_sample_died, random_state=42),
+                survived_df.sample(n=n_sample_died, random_state=42),
+            ]
+
+            # Shuffle the combined examples to mix died/survived cases
+            few_shot_examples_to_process = (
+                pd.concat(few_shot_list)
+                .sample(frac=1, random_state=42)
+                .reset_index(drop=True)
             )
-            for _, fs_row in few_shot_examples.iterrows():
+
+            for _, fs_row in few_shot_examples_to_process.iterrows():
                 fs_summary = fs_row["summary_text"]
                 fs_answer = "Yes" if fs_row["mortality_in_icu"] == 1 else "No"
                 fs_prompt_part = (
@@ -165,7 +178,13 @@ parser.add_argument(
     "--serialized_data_path",
     type=str,
     required=True,
-    help="Path to the serialized_data.txt file.",
+    help="Path to the serialized_data.txt file (train summaries for few-shot, outcomes included in text).",
+)
+parser.add_argument(
+    "--serialized_data_test_path",
+    type=str,
+    required=True,
+    help="Path to the serialized_data_test.txt file (test summaries, outcomes excluded in text).",
 )
 parser.add_argument(
     "--processed_data_path",
@@ -215,26 +234,44 @@ os.makedirs(args.plot_dir, exist_ok=True)
 
 # ------------------------------------------------------------------------------
 # Load serialized data
-serialized_df = load_serialized_data(args.serialized_data_path)
+serialized_train_df = load_serialized_data(args.serialized_data_path)
+serialized_test_df = load_serialized_data(args.serialized_data_test_path)
 processed_df = load_processed_data(args.processed_data_path)
 
-# Merge dataframes
-merged_df = pd.merge(
+# Prepare test_df for evaluation
+merged_test_df = pd.merge(
     processed_df,
-    serialized_df,
+    serialized_test_df,
     on="global_icu_stay_id",
     how="inner",
 )
+test_df = merged_test_df[merged_test_df["split_80_20"] == "test"].copy()
 
-# Drop rows with missing target variable
-initial_rows = len(merged_df)
-merged_df.dropna(subset=["mortality_in_icu"], inplace=True)
-rows_dropped = initial_rows - len(merged_df)
-print(f"Dropped {rows_dropped} rows due to missing target variable 'mortality_in_icu'.") # fmt: skip
+# Prepare train_df for few-shot examples
+merged_train_df = pd.merge(
+    processed_df,
+    serialized_train_df,
+    on="global_icu_stay_id",
+    how="inner",
+)
+train_df = merged_train_df[merged_train_df["split_80_20"] == "train"].copy()
 
-# Split into train and test sets
-train_df = merged_df[merged_df["split_80_20"] == "train"].copy()
-test_df = merged_df[merged_df["split_80_20"] == "test"].copy()
+# Drop rows with missing target variable or summary text
+initial_test_rows = len(test_df)
+test_df.dropna(subset=["mortality_in_icu", "summary_text"], inplace=True)
+rows_dropped_test = initial_test_rows - len(test_df)
+if rows_dropped_test > 0:
+    print(
+        f"Dropped {rows_dropped_test} rows from test set due to missing target or summary text."
+    )
+
+initial_train_rows = len(train_df)
+train_df.dropna(subset=["mortality_in_icu", "summary_text"], inplace=True)
+rows_dropped_train = initial_train_rows - len(train_df)
+if rows_dropped_train > 0:
+    print(
+        f"Dropped {rows_dropped_train} rows from train set for few-shot due to missing target or summary text."
+    )
 
 # Define models to evaluate
 model_configs = [

@@ -15,7 +15,8 @@ rule all:
         xgboost_plot="output_plots/baseline_xgboost_roc_curve.png",
         oasis_plot="output_plots/baseline_oasis_roc_curve.png",
         tabpfn_plot="output_plots/tabpfn_roc_curve.png",
-        serialized_data="output_data/serialized_data.txt",
+        serialized_data_train="output_data/serialized_data.txt",
+        serialized_data_test="output_data/serialized_data_test.txt",
         llm_results="output_data/llm_evaluation_results.csv", # Aggregated results
         llm_plots=expand(
             "output_plots/llm_{model}_{shots}-shot_roc_curve.png",
@@ -113,11 +114,12 @@ rule serialize_data:
         script="code/4_serialize_data.py",
         data="output_data/processed_data.parquet"
     output:
-        serialized_text="output_data/serialized_data.txt"
+        serialized_train_set="output_data/serialized_data.txt",
+        serialized_test_set="output_data/serialized_data_test.txt"
     threads: 1
     run:
         # Calculate directory within the run block
-        serialized_dir = os.path.dirname(output.serialized_text)
+        serialized_dir = os.path.dirname(output.serialized_train_set)
         # Use shell() function with f-string
         shell(f"python {input.script} --input '{input.data}' --output_dir '{serialized_dir}'")
 
@@ -125,6 +127,7 @@ rule evaluate_llm_with_shots:
     input:
         script="code/5_evaluate_LLM.py",
         serialized_data="output_data/serialized_data.txt",
+        serialized_data_test="output_data/serialized_data_test.txt",
         processed_data="output_data/processed_data.parquet"
     output:
         results="output_data/llm_{model}_{shots}-shot_results.csv",
@@ -142,6 +145,7 @@ rule evaluate_llm_with_shots:
         shell(
             f"python {input.script} "
             f"--serialized_data_path '{input.serialized_data}' "
+            f"--serialized_data_test_path '{input.serialized_data_test}' "
             f"--processed_data_path '{input.processed_data}' "
             f"--output_dir '{output_dir}' "
             f"--plot_dir '{plot_dir}' "

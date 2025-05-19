@@ -7,7 +7,7 @@ import pandas as pd
 
 def load_and_prepare_data(processed_data_path):
     """Loads data from a parquet file and standardizes column names."""
-    data_df = pd.read_parquet(processed_data_path)
+    data_df = pd.read_parquet(processed_data_path, dtype_backend='pyarrow')
     data_df.columns = [
         col.lower()
         .replace(" ", "_")
@@ -45,7 +45,9 @@ def clean_note(note_text):
     return note
 
 
-def generate_icu_stay_summary(data_df, global_icu_stay_id_value):
+def generate_icu_stay_summary(
+    data_df, global_icu_stay_id_value, include_outcome: bool
+):
     """Generates a textual summary for a given ICU stay ID."""
     patient_data = data_df[
         data_df["global_icu_stay_id"] == global_icu_stay_id_value
@@ -102,8 +104,9 @@ def generate_icu_stay_summary(data_df, global_icu_stay_id_value):
     if pd.notna(row.get("mechvent")):
         summary_parts.append(f"Mechanical Ventilation: {row['mechvent']}")
 
-    if pd.notna(row.get("mortality_in_icu")):
-        summary_parts.append(f"Mortality in ICU: {row['mortality_in_icu']}")
+    if include_outcome:
+        if pd.notna(row.get("mortality_in_icu")):
+            summary_parts.append(f"Mortality in ICU: {row['mortality_in_icu']}")
 
     note = ". ".join(filter(None, summary_parts))
     if note and note != "No summary data available.":
@@ -132,19 +135,38 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    # Define output file paths using os.path.join as per active file context
-    txt_output_path = os.path.join(args.output_dir, "serialized_data.txt")
+    # Define output file paths
+    txt_output_path_train = os.path.join(args.output_dir, "serialized_data.txt")
+    txt_output_path_test = os.path.join(args.output_dir, "serialized_data_test.txt") # fmt: skip
 
-    processed_data_df = load_and_prepare_data(args.input)
+    os.makedirs(args.output_dir, exist_ok=True)
 
-    if processed_data_df is not None:
-        all_ids = processed_data_df["global_icu_stay_id"].unique()
-        with open(txt_output_path, "w") as f:
-            for icu_id in all_ids:
-                summary = generate_icu_stay_summary(processed_data_df, icu_id)
-                f.write(summary + "\n")
-        print(f"Successfully generated summaries to {txt_output_path}")
-    else:
-        print(
-            f"Could not generate summaries due to data loading issues from {args.input}"
-        )
+    source_df = load_and_prepare_data(args.input)
+    train_source_df = source_df[source_df["split_80_20"] == "train"].copy()
+    test_source_df = source_df[source_df["split_80_20"] == "test"].copy()
+
+    # Generate serialized_data.txt (training set, with outcome)
+    train_ids = train_source_df["global_icu_stay_id"].unique()
+    with open(txt_output_path_train, "w") as f:
+        for icu_id in train_ids:
+            summary = generate_icu_stay_summary(
+                train_source_df, icu_id, include_outcome=True
+            )
+            f.write(summary + "\n")
+    print(
+        "Successfully generated training summaries (with outcome) "
+        f"to {txt_output_path_train}"
+    )
+
+    # Generate serialized_data_test.txt (test set, without outcome)
+    test_ids = test_source_df["global_icu_stay_id"].unique()
+    with open(txt_output_path_test, "w") as f:
+        for icu_id in test_ids:
+            summary = generate_icu_stay_summary(
+                test_source_df, icu_id, include_outcome=False
+            )
+            f.write(summary + "\n")
+    print(
+        "Successfully generated test summaries (without outcome) "
+        f"to {txt_output_path_test}"
+    )
