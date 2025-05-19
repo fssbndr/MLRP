@@ -84,6 +84,7 @@ def evaluate_model(
 
     predictions = []
     actual_labels = []
+    icu_ids = []
     device = model.device
 
     for _, row in test_df.iterrows():
@@ -91,6 +92,16 @@ def evaluate_model(
         actual_label = row["mortality_in_icu"]
 
         prompt_parts = []
+
+        # Explain the task
+        prompt_parts.append(
+            "You are a medical assistant. "
+            "Your task is to determine whether a patient will die in the ICU based on their summary.\n"
+            "You will be given a summary of the patient's ICU stay"
+            ""
+            if num_shots == 0
+            else " and some additional examples.\n"
+        )
 
         # Few-shot examples
         if num_shots > 0 and not train_df.empty:
@@ -113,22 +124,14 @@ def evaluate_model(
             )
 
             for _, fs_row in few_shot_examples_to_process.iterrows():
-                fs_summary = fs_row["summary_text"]
-                fs_answer = "Yes" if fs_row["mortality_in_icu"] == 1 else "No"
-                fs_prompt_part = (
-                    f"ICU Stay Summary:\n{fs_summary}\n\n"
-                    "Based on this summary, will the patient die in the ICU?\n"
-                    f"Answer: {fs_answer}\n\n"
-                )
-                prompt_parts.append(fs_prompt_part)
+                prompt_parts.append(fs_row["summary_text"])
 
         # Actual query
         query_prompt_part = (
             f"ICU Stay Summary:\n{summary_text}\n\n"
-            "Based on this summary, will the patient die in the ICU? "
-            "Your answer must be exactly 'Yes' or 'No', nothing else. "
+            "Your answer must be exactly 'Yes' or 'No', no numbers. "
             "Include no additional text or explanation.\n"
-            "Answer: "
+            "Based on this summary, will the patient die in the ICU? "
         )
         prompt_parts.append(query_prompt_part)
 
@@ -166,8 +169,9 @@ def evaluate_model(
 
         predictions.append(predicted_label)
         actual_labels.append(int(actual_label))
+        icu_ids.append(row["global_icu_stay_id"])
 
-    return actual_labels, predictions
+    return icu_ids, actual_labels, predictions
 
 
 # parse command line arguments
@@ -293,7 +297,7 @@ model_results = {}
 # EVALUATE LLM
 print(f"--- Starting evaluation for {model_config['name']} ---")
 
-actual_labels, predictions = evaluate_model(
+icu_ids, actual_labels, predictions = evaluate_model(
     test_df=test_df,
     model_name=model_config["name"],
     train_df=train_df,
@@ -309,22 +313,38 @@ print(f"--- Finished evaluation for {model_config['name']} ---")
 ################################################################################
 
 ### SAVE RESULTS ###
-results_df = pd.DataFrame.from_dict(model_results, orient="index")
-results_df = results_df.reset_index().rename(columns={"index": "model_name"})
+# Create a DataFrame with patient IDs, actual labels, and predictions
+predictions_df = pd.DataFrame(
+    {
+        "model_name": model_config["name"],
+        "num_shots": args.num_shots,
+        "global_icu_stay_id": icu_ids,
+        "actual_label": actual_labels,
+        "predicted_label": predictions,
+    }
+)
+# Set global_icu_stay_id as the index
+predictions_df.set_index("global_icu_stay_id", inplace=True)
 
-# Ensure model_id is included for easier aggregation if needed, though model_name is primary key
-results_df["model_id"] = model_config["id"]
-
-results_df.to_csv(output_csv_path, index=False)
-print(f"Evaluation results for {model_config['name']} saved to {output_csv_path}") # fmt: skip
+predictions_df.to_csv(output_csv_path)
+print(f"Per-patient evaluation results for {model_config['name']} saved to {output_csv_path}") # fmt: skip
 
 ### CALCULATE METRICS ###
-model_results[model_config["name"]] = {
+# These metrics are for console output / plot titles, not the primary CSV output anymore.
+model_metrics = {
     "accuracy": accuracy_score(actual_labels, predictions),
     "auc": roc_auc_score(actual_labels, predictions),
     "f1": f1_score(actual_labels, predictions, zero_division=0),
     "confusion_matrix": confusion_matrix(actual_labels, predictions).tolist(),
 }
+print(
+    f"Model: {model_config['name']}, "
+    f"Num Shots: {args.num_shots}, "
+    f"Accuracy: {model_metrics['accuracy']:.2f}, "
+    f"AUC: {model_metrics['auc']:.2f}, "
+    f"F1 Score: {model_metrics['f1']:.2f}, "
+    f"Confusion Matrix: {model_metrics['confusion_matrix']}"
+)
 
 ### SAVE ROC CURVE ###
 # Calculate ROC curve

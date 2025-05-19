@@ -84,22 +84,22 @@ def generate_icu_stay_summary(
 
     vitals = []
     if pd.notna(row.get("gcs")):
-        vitals.append(f"GCS: {row['gcs']}")
+        vitals.append(f"GCS: {row['gcs']:.0f}")
     if pd.notna(row.get("hr")):
-        vitals.append(f"HR: {row['hr']}")
+        vitals.append(f"HR: {row['hr']:.0f}")
     if pd.notna(row.get("map")):
-        vitals.append(f"MAP: {row['map']}")
+        vitals.append(f"MAP: {row['map']:.0f}")
     if pd.notna(row.get("rr")):
-        vitals.append(f"RR: {row['rr']}")
+        vitals.append(f"RR: {row['rr']:.0f}")
     if pd.notna(row.get("temp_c")):
-        vitals.append(f"Temp: {row['temp_c']} C")
+        vitals.append(f"Temp: {row['temp_c']:.1f} C")
     if vitals:
         summary_parts.append(
             f"Worst Vitals in the first 24 hours: {', '.join(vitals)}"
         )
 
     if pd.notna(row.get("urine_output_ml")):
-        summary_parts.append(f"Urine Output: {row['urine_output_ml']} ml")
+        summary_parts.append(f"Urine Output: {row['urine_output_ml']:.0f} ml")
 
     if pd.notna(row.get("mechvent")):
         summary_parts.append(f"Mechanical Ventilation: {row['mechvent']}")

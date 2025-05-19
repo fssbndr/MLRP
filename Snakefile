@@ -4,8 +4,8 @@ configfile: "config.yaml"
 
 # Define LLM models and number of shots
 LLM_MODEL_IDS = ["qwen_0_5b", "qwen_1_5b", "llama_3_2_1b"]
-# NUM_SHOT_VALUES will be [1, 2, 4, 8, 16, 32, 64, 128, 256] (2^0 to 2^8)
-NUM_SHOT_VALUES = [2**i for i in range(5)]
+# NUM_SHOT_VALUES will be [0, 1, 2, 4, 8, 16, 32, 64, 128, 256] (2^0 to 2^8)
+NUM_SHOT_VALUES = [0] + [2**i for i in range(4)]
 
 rule all:
     input:
