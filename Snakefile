@@ -6,6 +6,7 @@ configfile: "config.yaml"
 LLM_MODEL_IDS = ["qwen_0_5b", "qwen_1_5b", "llama_3_2_1b"]
 # NUM_SHOT_VALUES will be [0, 1, 2, 4, 8, 16, 32, 64, 128, 256] (2^0 to 2^8)
 NUM_SHOT_VALUES = [0] + [2**i for i in range(4)]
+NUM_SHOT_VALUES_TABPFN = [2**i for i in range(9)]
 
 rule all:
     input:
@@ -17,11 +18,15 @@ rule all:
         tabpfn_plot="output_plots/tabpfn_roc_curve.png",
         serialized_data_train="output_data/serialized_data.txt",
         serialized_data_test="output_data/serialized_data_test.txt",
-        llm_results="output_data/llm_evaluation_results.csv", # Aggregated results
+        results="output_data/evaluation_results.csv", # Aggregated results
         llm_plots=expand(
             "output_plots/llm_{model}_{shots}-shot_roc_curve.png",
             model=LLM_MODEL_IDS,
             shots=NUM_SHOT_VALUES
+        ),
+        tabpfn_plots=expand(
+            "output_plots/tabpfn_{shots}-shot_roc_curve.png",
+            shots=NUM_SHOT_VALUES_TABPFN
         ),
 
 rule create_data:
@@ -96,19 +101,6 @@ rule baseline_oasis:
         # Use shell() function with f-string
         shell(f"python {input.script} --input '{input.data}' --plot_dir '{plot_dir}'")
 
-rule tabpfn:
-    input:
-        script="code/3_tabpfn.py",
-        data="output_data/processed_data.parquet"
-    output:
-        plot="output_plots/tabpfn_roc_curve.png"
-    threads: 1
-    run:
-        # Calculate directories within the run block
-        plot_dir = os.path.dirname(output.plot)
-        # Use shell() function with f-string
-        shell(f"python {input.script} --input '{input.data}' --plot_dir '{plot_dir}'")
-
 rule serialize_data:
     input:
         script="code/4_serialize_data.py",
@@ -153,35 +145,57 @@ rule evaluate_llm_with_shots:
             f"--num_shots {shots_wc}"
         )
 
-rule aggregate_llm_results:
+rule evaluate_tabpfn_with_shots:
     input:
-        # Collect all individual results CSVs
-        results_list=expand(
+        script="code/5_evaluate_TabPFN.py",
+        processed_data="output_data/processed_data.parquet"
+    output:
+        results="output_data/tabpfn_{shots}-shot_results.csv",
+        plot="output_plots/tabpfn_{shots}-shot_roc_curve.png"
+    threads: 1
+    run:
+        shots_wc = wildcards.shots
+        output_dir = os.path.dirname(output.results)
+        plot_dir = os.path.dirname(output.plot)
+
+        shell(
+            f"python {input.script} "
+            f"--processed_data_path '{input.processed_data}' "
+            f"--output_dir '{output_dir}' "
+            f"--plot_dir '{plot_dir}' "
+            f"--num_shots {shots_wc}"
+        )
+
+rule aggregate_results:
+    input:
+        llm_results=expand(
             "output_data/llm_{model}_{shots}-shot_results.csv",
             model=LLM_MODEL_IDS,
             shots=NUM_SHOT_VALUES
+        ),
+        tabpfn_results=expand(
+            "output_data/tabpfn_{shots}-shot_results.csv",
+            shots=NUM_SHOT_VALUES_TABPFN
         )
     output:
-        aggregated_results="output_data/llm_evaluation_results.csv"
+        aggregated_results="output_data/evaluation_results.csv"
     threads: 1
     run:
-        # Simple aggregation: concatenate the CSVs.
-        # A more sophisticated script could be used here for complex aggregation.
-        with open(output.aggregated_results, 'w') as outfile:
-            first_file = True
-            # Iterate over the list of all generated result files
-            for fname in input.results_list:
-                # Check if file exists and is not empty, as some runs might fail
-                if os.path.exists(fname) and os.path.getsize(fname) > 0:
-                    with open(fname, 'r') as infile:
-                        if first_file:
-                            outfile.write(infile.read())
-                            first_file = False
-                        else:
-                            try:
-                                next(infile) # Skip header for subsequent files
-                                outfile.write(infile.read())
-                            except StopIteration: # Handles empty files after header
-                                pass 
-                else:
-                    print(f"Warning: File {fname} not found or is empty, skipping aggregation.")
+        import pandas as pd
+        import os
+
+        # Combine all input file paths into a single list
+        all_input_files = list(input.llm_results) + list(input.tabpfn_results)
+        
+        dataframes_to_concat = []
+
+        for file_path in all_input_files:
+            if os.path.exists(file_path) and os.path.getsize(file_path) > 0:
+                df = pd.read_csv(file_path)
+                dataframes_to_concat.append(df)
+
+        # Aggregate the DataFrames into a single DataFrame
+        # Write the aggregated DataFrame to the output CSV file without the DataFrame index.
+        aggregated_df = pd.concat(dataframes_to_concat, ignore_index=True)
+        aggregated_df.to_csv(output.aggregated_results, index=False)
+        print(f"Successfully aggregated {len(dataframes_to_concat)} CSV files into {output.aggregated_results}.")
