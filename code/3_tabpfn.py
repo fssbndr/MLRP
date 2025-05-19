@@ -76,7 +76,7 @@ y_test_np = y_all_np[test_mask]
 ################################################################################
 # TABPFN MODEL
 # Instantiate and fit the TabPFN Regressor on training data
-regressor = TabPFNRegressor()  # TabPFNRegressor(device=device)
+regressor = TabPFNRegressor(ignore_pretraining_limits=True)
 regressor.fit(X_train_np, y_train_np)
 ################################################################################
 
