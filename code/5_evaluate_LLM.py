@@ -1,9 +1,12 @@
 import argparse
 import os
+import random
 import re
 
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
+import torch
 from sklearn.metrics import (
     accuracy_score,
     auc,
@@ -13,6 +16,12 @@ from sklearn.metrics import (
     roc_curve,
 )
 from transformers import AutoModelForCausalLM, AutoTokenizer
+
+# Set seeds for reproducibility
+SEED = 42
+random.seed(SEED)
+np.random.seed(SEED)
+torch.manual_seed(SEED)
 
 
 def load_serialized_data(file_path):
@@ -140,9 +149,14 @@ def evaluate_model(
         model_inputs = tokenizer(prompt, return_tensors="pt").to(device)
         generated_ids = model.generate(
             model_inputs.input_ids,
-            attention_mask=model_inputs.attention_mask,  # Pass attention_mask
+            attention_mask=model_inputs.attention_mask,
             max_new_tokens=15,
             pad_token_id=tokenizer.pad_token_id,
+            # make output deterministic
+            do_sample=False,
+            top_k=None,
+            top_p=None,
+            temperature=None,
         )
 
         # Answer comes after the full prompt (i.e. examples and actual query).
