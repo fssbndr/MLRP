@@ -15,6 +15,7 @@ from sklearn.metrics import (
     roc_auc_score,
     roc_curve,
 )
+from tqdm import tqdm
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 # Set seeds for reproducibility
@@ -96,7 +97,11 @@ def evaluate_model(
     icu_ids = []
     device = model.device
 
-    for _, row in test_df.iterrows():
+    for _, row in tqdm(
+        test_df.iterrows(),
+        total=test_df.shape[0],
+        desc=f"Evaluating {model_name}",
+    ):
         summary_text = row["summary_text"]
         actual_label = row["mortality_in_icu"]
 
@@ -104,7 +109,7 @@ def evaluate_model(
 
         # Explain the task
         prompt_parts.append(
-            "You are a medical assistant. "
+            "You are a useful medical assistant. "
             "Your task is to determine whether a patient will die in the ICU based on their summary.\n"
             "You will be given a summary of the patient's ICU stay"
             ""
@@ -138,9 +143,11 @@ def evaluate_model(
         # Actual query
         query_prompt_part = (
             f"ICU Stay Summary:\n{summary_text}\n\n"
-            "Your answer must be exactly 'Yes' or 'No', no numbers. "
+            "Your answer must be a floating point number between 0.0 and 1.0, "
+            "representing the probability that the patient will die in the ICU. "
+            "For example, 0.75 or 0.33. "
             "Include no additional text or explanation.\n"
-            "Based on this summary, will the patient die in the ICU? "
+            "Based on this summary, what is the probability that the patient will die in the ICU? "
         )
         prompt_parts.append(query_prompt_part)
 
@@ -167,22 +174,42 @@ def evaluate_model(
 
         answer_part = response_text[len(prompt) :].strip().lower()
 
-        predicted_label = 0  # Default to No
-        if "yes" in answer_part:
-            predicted_label = 1
-        elif "no" in answer_part:
-            predicted_label = 0
-        else:
+        predicted_probability = 0.5  # Default to 0.5 (uncertain)
+        try:
+            # Attempt to extract a float from the answer_part
+            # This regex finds the first floating point number or integer.
+            match = re.search(r"[-+]?\d*\.\d+|\d+", answer_part)
+            if match:
+                extracted_value = float(match.group(0))
+                # Clamp the value between 0 and 1
+                predicted_probability = max(0.0, min(1.0, extracted_value))
+            else:
+                # Fallback for "yes" / "no" if no number is found, though less ideal
+                if "yes" in answer_part:
+                    predicted_probability = 1.0
+                elif "no" in answer_part:
+                    predicted_probability = 0.0
+                else:
+                    print(
+                        f"Warning: Model {model_name} produced an unclear answer for probability: "
+                        f"'{answer_part}' for summary ID {row.get('global_icu_stay_id', 'Unknown')}."
+                        " Interpreting as 0.5.\n"
+                        f"Actual label: {actual_label}\n"
+                        f"Full response: {response_text}"
+                    )
+        except ValueError:
             print(
-                f"Warning: Model {model_name} produced an unclear answer: "
+                f"Warning: Model {model_name} produced an answer that could not be parsed as float: "
                 f"'{answer_part}' for summary ID {row.get('global_icu_stay_id', 'Unknown')}."
-                " Interpreting as 'No'.\n"
+                " Interpreting as 0.5.\n"
                 f"Actual label: {actual_label}\n"
                 f"Full response: {response_text}"
             )
 
-        predictions.append(predicted_label)
-        actual_labels.append(int(actual_label))
+        predictions.append(predicted_probability)
+        actual_labels.append(
+            int(actual_label)
+        )  # Actual labels are still 0 or 1
         icu_ids.append(row["global_icu_stay_id"])
 
     return icu_ids, actual_labels, predictions
@@ -293,9 +320,13 @@ if rows_dropped_train > 0:
 
 # Define models to evaluate
 model_configs = [
-    {"name": "Qwen/Qwen2.5-0.5B-Instruct",       "id": "qwen_0_5b"},
     {"name": "meta-llama/Llama-3.2-1B-Instruct", "id": "llama_3_2_1b"},
+    # {"name": "meta-llama/Llama-3.2-3B-Instruct", "id": "llama_3_2_3b"},
+    {"name": "Qwen/Qwen2.5-0.5B-Instruct",       "id": "qwen_0_5b"},
     {"name": "Qwen/Qwen2.5-1.5B-Instruct",       "id": "qwen_1_5b"},
+    # {"name": "Qwen/Qwen2.5-3B-Instruct",         "id": "qwen_3b"},
+    # {"name": "Qwen/Qwen2.5-7B-Instruct",         "id": "qwen_7b"},
+    # {"name": "mlfoundations/tabula-8b",          "id": "tabula_8b"},
 ] # fmt: skip
 
 # Select the target model
@@ -311,7 +342,7 @@ model_results = {}
 # EVALUATE LLM
 print(f"--- Starting evaluation for {model_config['name']} ---")
 
-icu_ids, actual_labels, predictions = evaluate_model(
+icu_ids, actual_labels, probability_predictions = evaluate_model(
     test_df=test_df,
     model_name=model_config["name"],
     train_df=train_df,
@@ -319,7 +350,7 @@ icu_ids, actual_labels, predictions = evaluate_model(
 )
 
 # Stop execution if no predictions were made
-if not actual_labels or not predictions:
+if not actual_labels or not probability_predictions:
     print(f"Evaluation failed for {model_config['name']}.")
     exit()
 
@@ -327,14 +358,14 @@ print(f"--- Finished evaluation for {model_config['name']} ---")
 ################################################################################
 
 ### SAVE RESULTS ###
-# Create a DataFrame with patient IDs, actual labels, and predictions
+# Create a DataFrame with patient IDs, actual labels, and predicted probabilities
 predictions_df = pd.DataFrame(
     {
         "model_name": model_config["name"],
         "num_shots": args.num_shots,
         "global_icu_stay_id": icu_ids,
         "actual_label": actual_labels,
-        "predicted_label": predictions,
+        "predicted_probability": probability_predictions,  # Changed column name
     }
 )
 # Set global_icu_stay_id as the index
@@ -344,12 +375,19 @@ predictions_df.to_csv(output_csv_path)
 print(f"Per-patient evaluation results for {model_config['name']} saved to {output_csv_path}") # fmt: skip
 
 ### CALCULATE METRICS ###
+# For metrics requiring binary predictions, apply a 0.5 threshold
+binary_predictions = [1 if p >= 0.5 else 0 for p in probability_predictions]
+
 # These metrics are for console output / plot titles, not the primary CSV output anymore.
 model_metrics = {
-    "accuracy": accuracy_score(actual_labels, predictions),
-    "auc": roc_auc_score(actual_labels, predictions),
-    "f1": f1_score(actual_labels, predictions, zero_division=0),
-    "confusion_matrix": confusion_matrix(actual_labels, predictions).tolist(),
+    "accuracy": accuracy_score(actual_labels, binary_predictions),
+    "auc": roc_auc_score(
+        actual_labels, probability_predictions
+    ),  # AUC uses probabilities
+    "f1": f1_score(actual_labels, binary_predictions, zero_division=0),
+    "confusion_matrix": (
+        confusion_matrix(actual_labels, binary_predictions).tolist()
+    ),
 }
 print(
     f"Model: {model_config['name']}, "
@@ -361,8 +399,8 @@ print(
 )
 
 ### SAVE ROC CURVE ###
-# Calculate ROC curve
-fpr, tpr, thresholds = roc_curve(actual_labels, predictions)
+# Calculate ROC curve using probabilities
+fpr, tpr, thresholds = roc_curve(actual_labels, probability_predictions)
 roc_auc_val = auc(fpr, tpr)
 
 plt.figure()
