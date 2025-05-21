@@ -102,11 +102,15 @@ def generate_icu_stay_summary(
         summary_parts.append(f"Urine Output: {row['urine_output_ml']:.0f} ml")
 
     if pd.notna(row.get("mechvent")):
-        summary_parts.append(f"Mechanical Ventilation: {row['mechvent']}")
+        summary_parts.append(
+            f"Mechanical Ventilation: {'Yes' if row['mechvent'] else 'No'}"
+        )
 
     if include_outcome:
         if pd.notna(row.get("mortality_in_icu")):
-            summary_parts.append(f"Mortality in ICU: {row['mortality_in_icu']}")
+            summary_parts.append(
+                f"Mortality in ICU: {'Yes' if row['mortality_in_icu'] else 'No'}"
+            )
 
     note = ". ".join(filter(None, summary_parts))
     if note and note != "No summary data available.":

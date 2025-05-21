@@ -118,11 +118,11 @@ def evaluate_model(
             survived_df = train_df[train_df["mortality_in_icu"] == 0]
 
             n_sample_died = min(num_shots, len(died_df))
-            n_sample_died = min(num_shots, len(survived_df))
-            
+            n_sample_survived = min(num_shots, len(survived_df))
+
             few_shot_list = [
                 died_df.sample(n=n_sample_died, random_state=42),
-                survived_df.sample(n=n_sample_died, random_state=42),
+                survived_df.sample(n=n_sample_survived, random_state=42),
             ]
 
             # Shuffle the combined examples to mix died/survived cases

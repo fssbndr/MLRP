@@ -64,8 +64,8 @@ data = data.group_by("Global ICU Stay ID").agg(
     pl.col("Urine output").sum().alias("Urine output (ml)"),
     pl.col("Respiratory rate").max().alias("RR"),
     pl.col("Temperature").max().alias("Temp (C)"),
-    pl.col("Admission Type").first().alias("Admission Type"),
-    pl.col("Admission Urgency").first().alias("Admission Urgency"),
+    pl.col("Admission Type").first().cast(str).alias("Admission Type"),
+    pl.col("Admission Urgency").first().cast(str).alias("Admission Urgency"),
     pl.col("is mechanically ventilated").max().alias("MechVent"),
 )
 
@@ -88,6 +88,7 @@ data = (
         )
         .then(pl.lit("train"))
         .otherwise(pl.lit("test"))
+        .cast(str)
         .alias("split_80_20"),
     )
     .drop("Source Dataset")

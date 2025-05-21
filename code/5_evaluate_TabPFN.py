@@ -21,8 +21,6 @@ SEED = 42
 random.seed(SEED)
 np.random.seed(SEED)
 torch.manual_seed(SEED)
-if torch.cuda.is_available():
-    torch.cuda.manual_seed_all(SEED)
 
 device = "mps" if torch.backends.mps.is_available() else "cpu"
 
@@ -202,7 +200,7 @@ predictions_df = pl.DataFrame(
         "num_shots": args.num_shots,
         "global_icu_stay_id": icu_ids_test_np,
         "actual_label": actual_labels,
-        "predicted_label": predictions,
+        "predicted_probability": predicted_probabilities,
     }
 )
 

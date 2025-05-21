@@ -89,7 +89,7 @@ X_test_final_np = sm.add_constant(X_test_np)
 # LOGISTIC REGRESSION MODEL
 # Fit the model on the training data
 model = sm.Logit(y_train_np, X_train_final_np)
-result = model.fit(disp=0)
+result = model.fit(disp=0, method="lbfgs")
 
 ### SAVE SUMMARY ###
 # Write summary to file using the constructed path (summary is from model trained on training data)
