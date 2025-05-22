@@ -16,7 +16,7 @@ from sklearn.metrics import (
     roc_curve,
 )
 from tqdm import tqdm
-from transformers import AutoModelForCausalLM, AutoTokenizer
+import ollama
 
 # Set seeds for reproducibility
 SEED = 42
@@ -78,24 +78,14 @@ def evaluate_model(
     train_df: pd.DataFrame,
     num_shots: int,
 ):
-    """Evaluates a given LLM model, optionally with few-shot examples."""
-    print(f"Evaluating {model_name} with {num_shots}-shot prompting...")
-
-    model = AutoModelForCausalLM.from_pretrained(
-        model_name,
-        torch_dtype="auto",
-        device_map="auto",
+    """Evaluates a given LLM model (via Ollama), optionally with few-shot examples."""
+    print(
+        f"Evaluating {model_name} with {num_shots}-shot prompting using Ollama..."
     )
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
-
-    # Set pad_token_id if not set
-    if tokenizer.pad_token_id is None:
-        tokenizer.pad_token_id = tokenizer.eos_token_id
 
     predictions = []
     actual_labels = []
     icu_ids = []
-    device = model.device
 
     for _, row in tqdm(
         test_df.iterrows(),
@@ -154,20 +144,12 @@ def evaluate_model(
         prompt = "".join(prompt_parts)
 
         model_inputs = tokenizer(prompt, return_tensors="pt").to(device)
-        generated_ids = model.generate(
-            model_inputs.input_ids,
-            attention_mask=model_inputs.attention_mask,
-            max_new_tokens=15,
-            pad_token_id=tokenizer.pad_token_id,
-            # make output deterministic
-            do_sample=False,
-            top_k=None,
-            top_p=None,
-            temperature=None,
+        response = ollama.generate(
+            model=model_name, prompt=prompt, options={"num_predict": 100}
         )
 
-        # Answer comes after the full prompt (i.e. examples and actual query).
-        # -> slice to get only the generated answer part
+        # Ollama response is a dict, actual text is in response['response']
+        answer_part = response["response"].strip().lower()
         response_text = tokenizer.batch_decode(
             generated_ids, skip_special_tokens=True
         )[0]
@@ -195,7 +177,7 @@ def evaluate_model(
                         f"'{answer_part}' for summary ID {row.get('global_icu_stay_id', 'Unknown')}."
                         " Interpreting as 0.5.\n"
                         f"Actual label: {actual_label}\n"
-                        f"Full response: {response_text}"
+                        f"Full response: {response['response']}"
                     )
         except ValueError:
             print(
@@ -203,13 +185,11 @@ def evaluate_model(
                 f"'{answer_part}' for summary ID {row.get('global_icu_stay_id', 'Unknown')}."
                 " Interpreting as 0.5.\n"
                 f"Actual label: {actual_label}\n"
-                f"Full response: {response_text}"
+                f"Full response: {response['response']}"
             )
 
         predictions.append(predicted_probability)
-        actual_labels.append(
-            int(actual_label)
-        )  # Actual labels are still 0 or 1
+        actual_labels.append(int(actual_label))
         icu_ids.append(row["global_icu_stay_id"])
 
     return icu_ids, actual_labels, predictions
@@ -320,13 +300,12 @@ if rows_dropped_train > 0:
 
 # Define models to evaluate
 model_configs = [
-    {"name": "meta-llama/Llama-3.2-1B-Instruct", "id": "llama_3_2_1b"},
-    # {"name": "meta-llama/Llama-3.2-3B-Instruct", "id": "llama_3_2_3b"},
-    {"name": "Qwen/Qwen2.5-0.5B-Instruct",       "id": "qwen_0_5b"},
-    {"name": "Qwen/Qwen2.5-1.5B-Instruct",       "id": "qwen_1_5b"},
-    # {"name": "Qwen/Qwen2.5-3B-Instruct",         "id": "qwen_3b"},
-    # {"name": "Qwen/Qwen2.5-7B-Instruct",         "id": "qwen_7b"},
-    # {"name": "mlfoundations/tabula-8b",          "id": "tabula_8b"},
+    {"name": "llama3.2:3b-instruct-q8_0", "id": "llama_3.2_3b"},
+    {"name": "llama3.1:8b-instruct-q8_0", "id": "llama_3.1_8b"},
+    # {"name": "qwen2.5:7b-instruct-q8_0",  "id": "qwen_2.5_7b"},
+    # {"name": "gemma3:4b-it-q8_0",         "id": "gemma_3_4b"},
+    # {"name": "medgemma3:4b-it-q8_0",      "id": "medgemma_3_4b"}, # https://huggingface.co/unsloth/medgemma-4b-it-GGUF
+    # {"name": "tabula:8b-q8_0",            "id": "tabula_8b"},     # https://huggingface.co/tensorblock/tabula-8b-GGUF
 ] # fmt: skip
 
 # Select the target model

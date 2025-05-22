@@ -3,7 +3,7 @@ import os
 configfile: "config.yaml"
 
 # Define LLM models and number of shots
-LLM_MODEL_IDS = ["qwen_0_5b", "qwen_1_5b", "llama_3_2_1b"]
+LLM_MODEL_IDS = ["llama_3.2_3b"] # , "llama_3.1_8b"]
 # NUM_SHOT_VALUES will be [0, 1, 2, 4, 8, 16, 32, 64, 128, 256] (2^0 to 2^8)
 NUM_SHOT_VALUES = [0] + [2**i for i in range(4)]
 NUM_SHOT_VALUES_TABPFN = [2**i for i in range(9)]
