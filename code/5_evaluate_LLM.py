@@ -2,9 +2,11 @@ import argparse
 import os
 import random
 import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import matplotlib.pyplot as plt
 import numpy as np
+import ollama
 import pandas as pd
 import torch
 from sklearn.metrics import (
@@ -16,7 +18,6 @@ from sklearn.metrics import (
     roc_curve,
 )
 from tqdm import tqdm
-import ollama
 
 # Set seeds for reproducibility
 SEED = 42
@@ -25,6 +26,8 @@ np.random.seed(SEED)
 torch.manual_seed(SEED)
 
 
+# ------------------------------------------------------------------------------
+# region loading data
 def load_serialized_data(file_path):
     """Loads serialized summaries and extracts Global ICU Stay ID."""
     summaries = []
@@ -72,128 +75,168 @@ def load_processed_data(file_path):
     return df[required_cols]
 
 
+# ------------------------------------------------------------------------------
+# region processing data
+def _process_row(
+    row_tuple,
+    model_name: str,
+    few_shot_prompt_text: str,
+    num_shots: int,
+):
+    """Processes a single row for LLM evaluation."""
+    _, row = row_tuple  # row_tuple is (index, series) from df.iterrows()
+    summary_text = row["summary_text"]
+    actual_label = row["mortality_in_icu"]
+    icu_id = row["global_icu_stay_id"]
+
+    prompt_parts = []
+    prompt_parts.append(
+        "You are a useful medical assistant. "
+        "Your task is to determine whether a patient will die in the ICU based on their summary.\n"
+        "You will be given a summary of the patient's ICU stay"
+    )
+    if num_shots > 0 and few_shot_prompt_text:
+        prompt_parts.append(" and some additional examples.\n")
+        prompt_parts.append(few_shot_prompt_text)
+    else:
+        prompt_parts.append(".\n")  # Ensure correct punctuation if no few-shot
+
+    query_prompt_part = (
+        f"ICU Stay Summary:\n{summary_text}\n\n"
+        "Your answer must be a floating point number between 0.0 and 1.0, "
+        "representing the probability that the patient will die in the ICU. \n"
+        "Based on this summary, what is the probability that the patient will die in the ICU? "
+        "Include absolutely no additional text or explanation, answer only the number."
+    )
+    prompt_parts.append(query_prompt_part)
+    prompt = "".join(prompt_parts)
+
+    predicted_probability = None  # Default to None (uncertain)
+    full_response_text = ""
+
+    try:
+        response = ollama.generate(
+            model=model_name, prompt=prompt, options={"num_predict": 100}
+        )
+        answer_part = response["response"].strip().lower()
+        full_response_text = response["response"]
+
+        match = re.search(r"[-+]?\d*\.\d+|\d+", answer_part)
+        if match:
+            extracted_value = float(match.group(0))
+            predicted_probability = max(0.0, min(1.0, extracted_value))
+        else:
+            if "yes" in answer_part:
+                predicted_probability = 1.0
+            elif "no" in answer_part:
+                predicted_probability = 0.0
+            else:
+                print(
+                    f"Warning: Model {model_name} produced an unclear answer for probability: "
+                    f"'{answer_part}' for summary ID {icu_id}."
+                    " Interpreting as 0.5.\n"
+                    f"Actual label: {actual_label}\n"
+                    f"Full response: {full_response_text}"
+                )
+    except ValueError:
+        print(
+            f"Warning: Model {model_name} produced an answer that could not be parsed as float: "
+            f"'{answer_part}' for summary ID {icu_id}."
+            " Interpreting as 0.5.\n"
+            f"Actual label: {actual_label}\n"
+            f"Full response: {full_response_text}"
+        )
+    except Exception as e:
+        print(
+            f"Error during Ollama generation for model {model_name}, "
+            f"ID {icu_id}: {e}"
+        )
+
+    return icu_id, int(actual_label), predicted_probability
+
+
 def evaluate_model(
     test_df: pd.DataFrame,
     model_name: str,
     train_df: pd.DataFrame,
     num_shots: int,
+    max_workers: int = 10,
 ):
-    """Evaluates a given LLM model (via Ollama), optionally with few-shot examples."""
-    print(
-        f"Evaluating {model_name} with {num_shots}-shot prompting using Ollama..."
-    )
+    """Evaluates a given LLM model (via Ollama), optionally with few-shot examples, using parallel processing."""
+    print(f"Evaluating {model_name} with {num_shots}-shot prompting...")
 
-    predictions = []
-    actual_labels = []
-    icu_ids = []
+    # Precompute few-shot examples prompt part
+    few_shot_prompt_text = ""
+    if num_shots > 0 and not train_df.empty:
+        died_df = train_df[train_df["mortality_in_icu"] == 1]
+        survived_df = train_df[train_df["mortality_in_icu"] == 0]
 
-    for _, row in tqdm(
-        test_df.iterrows(),
-        total=test_df.shape[0],
-        desc=f"Evaluating {model_name}",
-    ):
-        summary_text = row["summary_text"]
-        actual_label = row["mortality_in_icu"]
+        n_sample_died = min(num_shots, len(died_df))
+        n_sample_survived = min(num_shots, len(survived_df))
 
-        prompt_parts = []
-
-        # Explain the task
-        prompt_parts.append(
-            "You are a useful medical assistant. "
-            "Your task is to determine whether a patient will die in the ICU based on their summary.\n"
-            "You will be given a summary of the patient's ICU stay"
-            ""
-            if num_shots == 0
-            else " and some additional examples.\n"
-        )
-
-        # Few-shot examples
-        if num_shots > 0 and not train_df.empty:
-            died_df = train_df[train_df["mortality_in_icu"] == 1]
-            survived_df = train_df[train_df["mortality_in_icu"] == 0]
-
-            n_sample_died = min(num_shots, len(died_df))
-            n_sample_survived = min(num_shots, len(survived_df))
-
-            few_shot_list = [
-                died_df.sample(n=n_sample_died, random_state=42),
-                survived_df.sample(n=n_sample_survived, random_state=42),
-            ]
-
-            # Shuffle the combined examples to mix died/survived cases
-            few_shot_examples_to_process = (
-                pd.concat(few_shot_list)
-                .sample(frac=1, random_state=42)
-                .reset_index(drop=True)
-            )
-
-            for _, fs_row in few_shot_examples_to_process.iterrows():
-                prompt_parts.append(fs_row["summary_text"])
-
-        # Actual query
-        query_prompt_part = (
-            f"ICU Stay Summary:\n{summary_text}\n\n"
-            "Your answer must be a floating point number between 0.0 and 1.0, "
-            "representing the probability that the patient will die in the ICU. \n"
-            "Based on this summary, what is the probability that the patient will die in the ICU? "
-            "Include absolutely no additional text or explanation, answer only the number."
-        )
-        prompt_parts.append(query_prompt_part)
-
-        prompt = "".join(prompt_parts)
-
-        model_inputs = tokenizer(prompt, return_tensors="pt").to(device)
-        response = ollama.generate(
-            model=model_name, prompt=prompt, options={"num_predict": 100}
-        )
-
-        # Ollama response is a dict, actual text is in response['response']
-        answer_part = response["response"].strip().lower()
-        response_text = tokenizer.batch_decode(
-            generated_ids, skip_special_tokens=True
-        )[0]
-
-        answer_part = response_text[len(prompt) :].strip().lower()
-
-        predicted_probability = 0.5  # Default to 0.5 (uncertain)
-        try:
-            # Attempt to extract a float from the answer_part
-            # This regex finds the first floating point number or integer.
-            match = re.search(r"[-+]?\d*\.\d+|\d+", answer_part)
-            if match:
-                extracted_value = float(match.group(0))
-                # Clamp the value between 0 and 1
-                predicted_probability = max(0.0, min(1.0, extracted_value))
-            else:
-                # Fallback for "yes" / "no" if no number is found, though less ideal
-                if "yes" in answer_part:
-                    predicted_probability = 1.0
-                elif "no" in answer_part:
-                    predicted_probability = 0.0
-                else:
-                    print(
-                        f"Warning: Model {model_name} produced an unclear answer for probability: "
-                        f"'{answer_part}' for summary ID {row.get('global_icu_stay_id', 'Unknown')}."
-                        " Interpreting as 0.5.\n"
-                        f"Actual label: {actual_label}\n"
-                        f"Full response: {response['response']}"
-                    )
-        except ValueError:
+        if n_sample_died < num_shots:
             print(
-                f"Warning: Model {model_name} produced an answer that could not be parsed as float: "
-                f"'{answer_part}' for summary ID {row.get('global_icu_stay_id', 'Unknown')}."
-                " Interpreting as 0.5.\n"
-                f"Actual label: {actual_label}\n"
-                f"Full response: {response['response']}"
+                f"Warning: Only {n_sample_died} examples available for 'died' class. "
+                f"Using {n_sample_died} instead of {num_shots}."
+            )
+        if n_sample_survived < num_shots:
+            print(
+                f"Warning: Only {n_sample_survived} examples available for 'survived' class. "
+                f"Using {n_sample_survived} instead of {num_shots}."
             )
 
-        predictions.append(predicted_probability)
-        actual_labels.append(int(actual_label))
-        icu_ids.append(row["global_icu_stay_id"])
+        few_shot_list = []
+        if n_sample_died > 0:
+            few_shot_list.append(
+                died_df.sample(n=n_sample_died, random_state=SEED)
+            )
+        if n_sample_survived > 0:
+            few_shot_list.append(
+                survived_df.sample(n=n_sample_survived, random_state=SEED)
+            )
+
+        few_shot_examples_to_process = (
+            pd.concat(few_shot_list)
+            .sample(frac=1, random_state=SEED)
+            .reset_index(drop=True)
+        )
+        temp_prompt_parts = []
+        for _, fs_row in few_shot_examples_to_process.iterrows():
+            temp_prompt_parts.append(fs_row["summary_text"])
+        few_shot_prompt_text = "".join(temp_prompt_parts)
+
+    results_list = []
+    tasks = []
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        for row_tuple in test_df.iterrows():
+            tasks.append(
+                executor.submit(
+                    _process_row,
+                    row_tuple,
+                    model_name,
+                    few_shot_prompt_text,
+                    num_shots,
+                )
+            )
+
+        for future in tqdm(
+            as_completed(tasks),
+            total=len(tasks),
+            desc=f"Evaluating {model_name}",
+        ):
+            # result = (icu_id, actual_label, predicted_probability)
+            results_list.append(future.result())
+
+    icu_ids = [res[0] for res in results_list]
+    actual_labels = [res[1] for res in results_list]
+    predictions = [res[2] for res in results_list]
 
     return icu_ids, actual_labels, predictions
 
 
+# ------------------------------------------------------------------------------
+# region main
 # parse command line arguments
 parser = argparse.ArgumentParser(
     description="Evaluate a specific LLM on serialized ICU stay summaries."
