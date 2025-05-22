@@ -134,10 +134,9 @@ def evaluate_model(
         query_prompt_part = (
             f"ICU Stay Summary:\n{summary_text}\n\n"
             "Your answer must be a floating point number between 0.0 and 1.0, "
-            "representing the probability that the patient will die in the ICU. "
-            "For example, 0.75 or 0.33. "
-            "Include no additional text or explanation.\n"
+            "representing the probability that the patient will die in the ICU. \n"
             "Based on this summary, what is the probability that the patient will die in the ICU? "
+            "Include absolutely no additional text or explanation, answer only the number."
         )
         prompt_parts.append(query_prompt_part)
 
