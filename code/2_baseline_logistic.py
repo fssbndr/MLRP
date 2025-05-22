@@ -3,9 +3,11 @@ import os
 
 import matplotlib.pyplot as plt
 import polars as pl
+import pandas as pd
 from sklearn.metrics import auc, roc_curve
 
 import statsmodels.api as sm
+import statsmodels.formula.api as smf
 
 # parse command line arguments
 parser = argparse.ArgumentParser()
@@ -62,34 +64,53 @@ X_all_df = data.select(
 y_all_np = data.select("Mortality in ICU").to_numpy().flatten()
 
 # Fill null values
-X_all_df = X_all_df.fill_null(0)
-
-# Convert categorical columns to dummy variables
-categorical_cols = ["Admission Type", "Admission Urgency"]
-X_all_df_dummies = X_all_df.to_dummies(
-    columns=categorical_cols, drop_first=True
+categorical_cols = ["Admission Type", "Admission Urgency", "MechVent"]
+X_all_df = X_all_df.with_columns(
+    pl.when(pl.col(col).is_null())
+    .then(pl.lit("Unknown"))
+    .otherwise(pl.col(col))
+    .cast(str)
+    .alias(col)
+    for col in categorical_cols
 )
+X_all_df = X_all_df.fill_null(0)
 
 # Get train/test masks from the 'split_80_20' column
 train_mask = (data["split_80_20"] == "train").to_numpy()
 test_mask = (data["split_80_20"] == "test").to_numpy()
 
 # Split features and target
-X_train_np = X_all_df_dummies.filter(pl.Series(train_mask)).to_numpy()
-X_test_np = X_all_df_dummies.filter(pl.Series(test_mask)).to_numpy()
+X_train = X_all_df.filter(pl.Series(train_mask))
+X_test = X_all_df.filter(pl.Series(test_mask))
 
 y_train_np = y_all_np[train_mask]
 y_test_np = y_all_np[test_mask]
 
 ################################################################################
-# Convert to numpy and add constant for train and test sets
-X_train_final_np = sm.add_constant(X_train_np)
-X_test_final_np = sm.add_constant(X_test_np)
+# Prepare data for statsmodels.formula.api
+feature_names = X_train.columns
+target_name = "_target_"
 
-# LOGISTIC REGRESSION MODEL
+X_train = X_train.with_columns(pl.Series(target_name, y_train_np).cast(int))
+
+# Convert Polars DataFrames to Pandas DataFrames for statsmodels.formula.api
+X_train_pd = X_train.to_pandas()
+X_test_pd = X_test.to_pandas()
+
+# Construct the formula string using Q() for quoting column names
+formula_features_str = " + ".join(
+    [
+        (f'Q("{col}")' if not col in categorical_cols else f'C(Q("{col}"))')
+        for col in feature_names
+    ]
+)
+formula_str = f"{target_name} ~ {formula_features_str}"
+
+# LOGISTIC REGRESSION MODEL using statsmodels.formula.api
 # Fit the model on the training data
-model = sm.Logit(y_train_np, X_train_final_np)
-result = model.fit(disp=0, method="lbfgs")
+# sm.add_constant is not needed as smf handles the intercept by default
+model = smf.logit(formula=formula_str, data=X_train_pd)
+result = model.fit(disp=0)
 
 ### SAVE SUMMARY ###
 # Write summary to file using the constructed path (summary is from model trained on training data)
@@ -99,7 +120,7 @@ with open(summary_output_path, "w") as f:
 
 ### SAVE ROC CURVE ###
 # Predict probabilities on the test set
-y_pred_prob_test = result.predict(X_test_final_np)
+y_pred_prob_test = result.predict(X_test_pd)
 
 # Calculate ROC curve using test data
 fpr, tpr, thresholds = roc_curve(y_test_np, y_pred_prob_test)
