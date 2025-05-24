@@ -4,6 +4,11 @@ import re
 
 import pandas as pd
 
+# Mapping of numeric targets to string values for binary classification
+BINARY_CLS_LABELS_MAPPING = {"1": "Yes", "1.0": "Yes", "0": "No", "0.0": "No"}
+EXCLUDED_COLS_FOR_TABULA = ["global_icu_stay_id", "split_80_20"]
+TARGET_COL_FOR_TABULA = "mortality_in_icu"
+
 
 def load_and_prepare_data(processed_data_path):
     """Loads data from a parquet file and standardizes column names."""
@@ -121,6 +126,24 @@ def generate_icu_stay_summary(
     return clean_note(note)
 
 
+def generate_tabula_serialization(row: pd.Series) -> str:
+    """Generates a TabuLa-specific feature string for a given data row."""
+    feature_parts = []
+    for col, val in row.items():
+        if (
+            col in EXCLUDED_COLS_FOR_TABULA
+            or col == TARGET_COL_FOR_TABULA
+            or pd.isna(val)
+        ):
+            continue
+
+        # Format: "The feature_name is feature_value."
+        feature_parts.append(f"The {col} is {str(val)}.")
+
+    features_string = " ".join(feature_parts)
+    return features_string
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Generate serialized ICU stay summaries."
@@ -139,9 +162,13 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
+    # fmt: off
     # Define output file paths
     txt_output_path_train = os.path.join(args.output_dir, "serialized_data.txt")
-    txt_output_path_test = os.path.join(args.output_dir, "serialized_data_test.txt") # fmt: skip
+    txt_output_path_test = os.path.join(args.output_dir, "serialized_data_test.txt")
+    txt_output_path_tabula_train = os.path.join(args.output_dir, "tabula_serialized_data.txt") 
+    txt_output_path_tabula_test = os.path.join(args.output_dir, "tabula_serialized_data_test.txt")
+    # fmt: on
 
     os.makedirs(args.output_dir, exist_ok=True)
 
@@ -173,4 +200,29 @@ if __name__ == "__main__":
     print(
         "Successfully generated test summaries (without outcome) "
         f"to {txt_output_path_test}"
+    )
+
+    # Generate tabula_serialized_data.txt (training set)
+    # Each line: global_icu_stay_id\t{tabula_feature_string}
+    with open(txt_output_path_tabula_train, "w") as f:
+        for _, row in train_source_df.iterrows():
+            icu_id = row["global_icu_stay_id"]
+            # generate_tabula_serialization now only takes the row
+            tabula_feature_string = generate_tabula_serialization(row)
+            f.write(f"{icu_id}\t{tabula_feature_string}\n")
+    print(
+        "Successfully generated TabuLa training feature strings "
+        f"to {txt_output_path_tabula_train}"
+    )
+
+    # Generate tabula_serialized_data_test.txt (test set)
+    # Each line: global_icu_stay_id\t{tabula_feature_string}
+    with open(txt_output_path_tabula_test, "w") as f:
+        for _, row in test_source_df.iterrows():
+            icu_id = row["global_icu_stay_id"]
+            tabula_feature_string = generate_tabula_serialization(row)
+            f.write(f"{icu_id}\t{tabula_feature_string}\n")
+    print(
+        "Successfully generated TabuLa test feature strings "
+        f"to {txt_output_path_tabula_test}"
     )

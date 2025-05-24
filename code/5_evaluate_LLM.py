@@ -25,28 +25,58 @@ random.seed(SEED)
 np.random.seed(SEED)
 torch.manual_seed(SEED)
 
+# fmt: off
+# Define TabuLa specific prompt components
+TABULA_TARGET_COL_NAME = "mortality_in_icu"
+QUARTILE_LABELS = ["0.0-0.25", "0.25-0.5", "0.5-0.75", "0.75-1.0"]
+TABULA_LABEL_OPTIONS = "||" + "||".join(QUARTILE_LABELS) + "||"
+TABULA_PREFIX = f"Predict the value of {TABULA_TARGET_COL_NAME}: {TABULA_LABEL_OPTIONS} "
+TABULA_SUFFIX = f" What is the value of {TABULA_TARGET_COL_NAME}? {TABULA_LABEL_OPTIONS}"
+# Special tokens for TabuLa
+TABULA_END_INPUT_TOKEN = "<|endinput|>"
+TABULA_END_COMPLETION_TOKEN = "<|endcompletion|>"
+# fmt: on
+
 
 # ------------------------------------------------------------------------------
 # region loading data
 def load_serialized_data(file_path):
     """Loads serialized summaries and extracts Global ICU Stay ID."""
     summaries = []
+    is_tabula_file = "tabula_serialized_data" in os.path.basename(file_path)
+
     with open(file_path, "r", encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if not line:
                 continue
-            match = re.search(r"Patient ID:\s*(\S+?)\s*\.", line)
-            if match:
-                try:
-                    icu_id = match.group(1)
+
+            if is_tabula_file:
+                parts = line.split("\t", 1)
+                if len(parts) == 2:
+                    icu_id_str, summary_text = parts
                     summaries.append(
-                        {"global_icu_stay_id": icu_id, "summary_text": line}
+                        {
+                            "global_icu_stay_id": icu_id_str,
+                            "summary_text": summary_text,
+                        }
                     )
-                except ValueError:
-                    print(f"Warning: Could not parse ID from line: {line}")
-            else:
-                print(f"Warning: Could not find 'Patient ID: ...' pattern in line: {line}") # fmt: skip
+                else:
+                    print(
+                        f"Warning: TabuLa line format error (expected ID\\tTEXT): {line}"
+                    )
+            else:  # Original logic for non-TabuLa files
+                match = re.search(r"Patient ID:\s*(\S+?)\s*\.", line)
+                if match:
+                    try:
+                        icu_id = match.group(1)
+                        summaries.append(
+                            {"global_icu_stay_id": icu_id, "summary_text": line}
+                        )
+                    except ValueError:
+                        print(f"Warning: Could not parse ID from line: {line}")
+                else:
+                    print(f"Warning: Could not find 'Patient ID: ...' pattern in line: {line}") # fmt: skip
 
     if not summaries:
         # Raise an error if no summaries were found for some reason
@@ -90,27 +120,38 @@ def _process_row(
     icu_id = row["global_icu_stay_id"]
 
     prompt_parts = []
-    prompt_parts.append(
-        "You are a useful medical assistant. "
-        "Your task is to determine whether a patient will die in the ICU based on their summary.\n"
-        "You will be given a summary of the patient's ICU stay"
-    )
-    if num_shots > 0 and few_shot_prompt_text:
-        prompt_parts.append(" and some additional examples.\n")
-        prompt_parts.append(few_shot_prompt_text)
-    else:
-        prompt_parts.append(".\n")  # Ensure correct punctuation if no few-shot
+    is_tabula_model = "tabula" in model_name.lower()
 
-    query_prompt_part = (
-        f"ICU Stay Summary:\n{summary_text}\n\n"
-        "Your answer must be a floating point number between 0.0 and 1.0, "
-        "representing the probability that the patient will die in the ICU. \n"
-        "Based on this summary, what is the probability that the patient will die in the ICU? "
-        "Include absolutely no additional text or explanation, answer only the number."
-    )
-    prompt_parts.append(query_prompt_part)
+    if is_tabula_model:
+        # For TabuLa, few_shot_prompt_text is already formatted with prefix/suffix/outcome
+        if num_shots > 0 and few_shot_prompt_text:
+            prompt_parts.append(few_shot_prompt_text)
+        # Append the query for the current instance
+        # Format: PREFIX + features + SUFFIX + END_INPUT_TOKEN
+        query_prompt_part = f"{TABULA_PREFIX}{summary_text}{TABULA_SUFFIX} {TABULA_END_INPUT_TOKEN}"
+        prompt_parts.append(query_prompt_part)
+    else:  # non-TabuLa prompt construction
+        prompt_parts.append(
+            "You are a useful medical assistant. "
+            "Your task is to determine whether a patient will die in the ICU based on their summary.\n"
+            "You will be given a summary of the patient's ICU stay"
+        )
+        if num_shots > 0 and few_shot_prompt_text:
+            prompt_parts.append(" and some additional examples.\n")
+            prompt_parts.append(few_shot_prompt_text)
+        else:  # Ensure correct punctuation
+            prompt_parts.append(".\n")
+
+        query_prompt_part = (
+            f"ICU Stay Summary:\n{summary_text}\n\n"
+            "Your answer must be a floating point number between 0.0 and 1.0, "
+            "representing the probability that the patient will die in the ICU. \n"
+            "Based on this summary, what is the probability that the patient will die in the ICU? "
+            "Include absolutely no additional text or explanation, answer only the number."
+        )
+        prompt_parts.append(query_prompt_part)
+
     prompt = "".join(prompt_parts)
-
     predicted_probability = None  # Default to None (uncertain)
     full_response_text = ""
 
@@ -121,23 +162,42 @@ def _process_row(
         answer_part = response["response"].strip().lower()
         full_response_text = response["response"]
 
-        match = re.search(r"[-+]?\d*\.\d+|\d+", answer_part)
-        if match:
-            extracted_value = float(match.group(0))
-            predicted_probability = max(0.0, min(1.0, extracted_value))
-        else:
-            if "yes" in answer_part:
-                predicted_probability = 1.0
-            elif "no" in answer_part:
-                predicted_probability = 0.0
+        if is_tabula_model:
+            # Interpret TabuLa quartile prediction and convert to probability
+            if QUARTILE_LABELS[0].lower() in answer_part:  # "0.0-0.25"
+                predicted_probability = 0.125
+            elif QUARTILE_LABELS[1].lower() in answer_part:  # "0.25-0.5"
+                predicted_probability = 0.375
+            elif QUARTILE_LABELS[2].lower() in answer_part:  # "0.5-0.75"
+                predicted_probability = 0.625
+            elif QUARTILE_LABELS[3].lower() in answer_part:  # "0.75-1.0"
+                predicted_probability = 0.875
             else:
                 print(
-                    f"Warning: Model {model_name} produced an unclear answer for probability: "
+                    f"Warning: Model {model_name} (TabuLa) produced an unclear quartile answer: "
                     f"'{answer_part}' for summary ID {icu_id}."
-                    " Interpreting as 0.5.\n"
                     f"Actual label: {actual_label}\n"
                     f"Full response: {full_response_text}"
                 )
+        else:
+            match = re.search(r"[-+]?\d*\.\d+|\d+", answer_part)
+            if match:
+                extracted_value = float(match.group(0))
+                predicted_probability = max(0.0, min(1.0, extracted_value))
+            else:
+                if "yes" in answer_part:
+                    predicted_probability = 1.0
+                elif "no" in answer_part:
+                    predicted_probability = 0.0
+                else:
+                    print(
+                        f"Warning: Model {model_name} produced an unclear answer for probability: "
+                        f"'{answer_part}' for summary ID {icu_id}."
+                        " Interpreting as 0.5.\n"
+                        f"Actual label: {actual_label}\n"
+                        f"Full response: {full_response_text}"
+                    )
+
     except ValueError:
         print(
             f"Warning: Model {model_name} produced an answer that could not be parsed as float: "
@@ -164,6 +224,7 @@ def evaluate_model(
 ):
     """Evaluates a given LLM model (via Ollama), optionally with few-shot examples, using parallel processing."""
     print(f"Evaluating {model_name} with {num_shots}-shot prompting...")
+    is_tabula_model = "tabula" in model_name.lower()
 
     # Precompute few-shot examples prompt part
     few_shot_prompt_text = ""
@@ -200,9 +261,31 @@ def evaluate_model(
             .sample(frac=1, random_state=SEED)
             .reset_index(drop=True)
         )
+
         temp_prompt_parts = []
         for _, fs_row in few_shot_examples_to_process.iterrows():
-            temp_prompt_parts.append(fs_row["summary_text"])
+            fs_summary_text = fs_row["summary_text"]
+            if is_tabula_model:
+                fs_outcome_val = fs_row["mortality_in_icu"]
+                # Map binary outcome to extreme quartiles for TabuLa few-shot
+                fs_outcome_quartile = (
+                    QUARTILE_LABELS[3]
+                    if int(fs_outcome_val) == 1
+                    else QUARTILE_LABELS[0]
+                )
+                # Format the few-shot example for TabuLa
+                formatted_fs_example = (
+                    TABULA_PREFIX
+                    + fs_summary_text
+                    + TABULA_SUFFIX
+                    + TABULA_END_INPUT_TOKEN
+                    + fs_outcome_quartile
+                    + TABULA_END_COMPLETION_TOKEN
+                    + "\n"
+                )
+                temp_prompt_parts.append(formatted_fs_example)
+            else:  # Original behavior for non-TabuLa: just append the summary text
+                temp_prompt_parts.append(fs_summary_text)
         few_shot_prompt_text = "".join(temp_prompt_parts)
 
     results_list = []
@@ -342,12 +425,14 @@ if rows_dropped_train > 0:
 
 # Define models to evaluate
 model_configs = [
-    {"name": "llama3.2:3b-instruct-q8_0", "id": "llama_3.2_3b"},
-    {"name": "llama3.1:8b-instruct-q8_0", "id": "llama_3.1_8b"},
-    # {"name": "qwen2.5:7b-instruct-q8_0",  "id": "qwen_2.5_7b"},
-    # {"name": "gemma3:4b-it-q8_0",         "id": "gemma_3_4b"},
-    # {"name": "medgemma3:4b-it-q8_0",      "id": "medgemma_3_4b"}, # https://huggingface.co/unsloth/medgemma-4b-it-GGUF
-    # {"name": "tabula:8b-q8_0",            "id": "tabula_8b"},     # https://huggingface.co/tensorblock/tabula-8b-GGUF
+    {"name": "llama3.2:3b-instruct-q8_0",         "id": "llama_3.2_3b"},
+    {"name": "llama3.1:8b-instruct-q8_0",         "id": "llama_3.1_8b"},
+    {"name": "qwen3:8b-q8_0",                     "id": "qwen_3_8b"},
+    {"name": "mistral:7b-instruct-v0.3-q8_0",     "id": "mistral_7b"},
+    {"name": "deepseek-r1:8b-llama-distill-q8_0", "id": "deepseek_r1_8b"},
+    {"name": "gemma3:4b-it-q8_0",                 "id": "gemma_3_4b"},
+    {"name": "medgemma3:4b-it-q8_0",              "id": "medgemma_3_4b"}, # https://huggingface.co/unsloth/medgemma-4b-it-GGUF
+    {"name": "tabula:8b-q8_0",                    "id": "tabula_8b"},     # https://huggingface.co/tensorblock/tabula-8b-GGUF
 ] # fmt: skip
 
 # Select the target model

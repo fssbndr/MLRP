@@ -18,7 +18,7 @@ rule all:
         tabpfn_plot="output_plots/tabpfn_roc_curve.png",
         serialized_data_train="output_data/serialized_data.txt",
         serialized_data_test="output_data/serialized_data_test.txt",
-        results="output_data/evaluation_results.csv", # Aggregated results
+        results="output_data/evaluation_results.csv",
         llm_plots=expand(
             "output_plots/llm_{model}_{shots}-shot_roc_curve.png",
             model=LLM_MODEL_IDS,
@@ -107,7 +107,9 @@ rule serialize_data:
         data="output_data/processed_data.parquet"
     output:
         serialized_train_set="output_data/serialized_data.txt",
-        serialized_test_set="output_data/serialized_data_test.txt"
+        serialized_test_set="output_data/serialized_data_test.txt",
+        serialized_tabula_train="output_data/tabula_serialized_data.txt",
+        serialized_tabula_test="output_data/tabula_serialized_data_test.txt"
     threads: 1
     run:
         # Calculate directory within the run block
@@ -118,8 +120,8 @@ rule serialize_data:
 rule evaluate_llm_with_shots:
     input:
         script="code/5_evaluate_LLM.py",
-        serialized_data="output_data/serialized_data.txt",
-        serialized_data_test="output_data/serialized_data_test.txt",
+        serialized_data=lambda wildcards: "output_data/tabula_serialized_data.txt" if wildcards.model == "tabula_8b" else "output_data/serialized_data.txt",
+        serialized_data_test=lambda wildcards: "output_data/tabula_serialized_data_test.txt" if wildcards.model == "tabula_8b" else "output_data/serialized_data_test.txt",
         processed_data="output_data/processed_data.parquet"
     output:
         results="output_data/llm_{model}_{shots}-shot_results.csv",
