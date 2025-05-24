@@ -370,10 +370,26 @@ icu_ids, actual_labels, probability_predictions = evaluate_model(
     num_shots=args.num_shots,
 )
 
-# Stop execution if no predictions were made
-if not actual_labels or not probability_predictions:
-    print(f"Evaluation failed for {model_config['name']}.")
-    exit()
+# Filter out None predictions and prepare data for metrics and output
+total_predictions = len(probability_predictions)
+final_icu_ids = []
+final_actual_labels = []
+final_probability_predictions = []
+
+if total_predictions > 0:  # Ensure lists are not empty before iterating
+    for i in range(total_predictions):
+        if probability_predictions[i] is not None:
+            final_icu_ids.append(icu_ids[i])
+            final_actual_labels.append(actual_labels[i])
+            final_probability_predictions.append(probability_predictions[i])
+
+none_predictions_count = total_predictions - len(final_probability_predictions)
+
+if none_predictions_count > 0:
+    print(
+        f"Warning: Dropped {none_predictions_count} predictions due to None probability."
+    )
+
 
 print(f"--- Finished evaluation for {model_config['name']} ---")
 ################################################################################
@@ -386,7 +402,7 @@ predictions_df = pd.DataFrame(
         "num_shots": args.num_shots,
         "global_icu_stay_id": icu_ids,
         "actual_label": actual_labels,
-        "predicted_probability": probability_predictions,  # Changed column name
+        "predicted_probability": probability_predictions,
     }
 )
 # Set global_icu_stay_id as the index
@@ -397,31 +413,34 @@ print(f"Per-patient evaluation results for {model_config['name']} saved to {outp
 
 ### CALCULATE METRICS ###
 # For metrics requiring binary predictions, apply a 0.5 threshold
-binary_predictions = [1 if p >= 0.5 else 0 for p in probability_predictions]
+# final_probability_predictions is guaranteed not to have None here.
+binary_predictions = [
+    1 if p >= 0.5 else 0 for p in final_probability_predictions
+]
 
-# These metrics are for console output / plot titles, not the primary CSV output anymore.
+# Calculate metrics only if there's valid data after filtering
 model_metrics = {
-    "accuracy": accuracy_score(actual_labels, binary_predictions),
-    "auc": roc_auc_score(
-        actual_labels, probability_predictions
-    ),  # AUC uses probabilities
-    "f1": f1_score(actual_labels, binary_predictions, zero_division=0),
-    "confusion_matrix": (
-        confusion_matrix(actual_labels, binary_predictions).tolist()
-    ),
+    "accuracy": accuracy_score(final_actual_labels, binary_predictions),
+    "auc": roc_auc_score(final_actual_labels, final_probability_predictions),
+    "f1": f1_score(final_actual_labels, binary_predictions, zero_division=0),
+    "cm": confusion_matrix(final_actual_labels, binary_predictions).tolist(),
+    "missingness": none_predictions_count / total_predictions,
 }
 print(
     f"Model: {model_config['name']}, "
     f"Num Shots: {args.num_shots}, "
+    f"missing Predictions: {model_metrics['missingness']:.1%}, "
     f"Accuracy: {model_metrics['accuracy']:.2f}, "
     f"AUC: {model_metrics['auc']:.2f}, "
     f"F1 Score: {model_metrics['f1']:.2f}, "
-    f"Confusion Matrix: {model_metrics['confusion_matrix']}"
+    f"Confusion Matrix: {model_metrics['cm']}"
 )
 
 ### SAVE ROC CURVE ###
-# Calculate ROC curve using probabilities
-fpr, tpr, thresholds = roc_curve(actual_labels, probability_predictions)
+# Calculate ROC curve using filtered probabilities
+fpr, tpr, thresholds = roc_curve(
+    final_actual_labels, final_probability_predictions
+)
 roc_auc_val = auc(fpr, tpr)
 
 plt.figure()
