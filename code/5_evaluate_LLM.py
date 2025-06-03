@@ -158,7 +158,9 @@ def _process_row(
 
     try:
         response = ollama.generate(
-            model=model_name, prompt=prompt, options={"num_predict": 100}
+            model=model_name,
+            prompt=prompt,
+            options={"num_predict": 100, "num_ctx": 8192},
         )
         answer_part = response["response"].strip().lower()
         full_response_text = response["response"]
@@ -429,6 +431,7 @@ model_configs = [
     {"name": "llama3.2:3b-instruct-q8_0",         "id": "llama_3.2_3b"},
     {"name": "llama3.1:8b-instruct-q8_0",         "id": "llama_3.1_8b"},
     {"name": "qwen3:8b-q8_0",                     "id": "qwen_3_8b"},
+    {"name": "granite3.3:8b-instruct-q8_0",       "id": "granite_3.3_8b"},
     {"name": "mistral:7b-instruct-v0.3-q8_0",     "id": "mistral_7b"},
     {"name": "deepseek-r1:8b-llama-distill-q8_0", "id": "deepseek_r1_8b"},
     {"name": "gemma3:4b-it-q8_0",                 "id": "gemma_3_4b"},
@@ -454,6 +457,14 @@ icu_ids, actual_labels, probability_predictions = evaluate_model(
     model_name=model_config["name"],
     train_df=train_df,
     num_shots=args.num_shots,
+)
+
+# Unload the model to free up resources
+ollama.generate(
+    model=model_config["name"],
+    prompt="Done evaluating.",
+    options={"num_predict": 1},
+    keep_alive=0,
 )
 
 # Filter out None predictions and prepare data for metrics and output
