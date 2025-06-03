@@ -11,6 +11,9 @@ NUM_SHOT_VALUES_TABPFN = [2**i for i in range(9)]
 rule all:
     input:
         processed_data="output_data/processed_data.parquet",
+        processed_data_hourly="output_data/processed_data_hourly.parquet",
+        processed_data_stats="output_data/processed_data_stats.parquet",
+        processed_data_hourly_stats="output_data/processed_data_hourly_stats.parquet",
         log_summary="output_data/baseline_logistic_summary.txt",
         log_plot="output_plots/baseline_logistic_roc_curve.png",
         xgboost_plot="output_plots/baseline_xgboost_roc_curve.png",
@@ -26,6 +29,18 @@ rule all:
         ),
         tabpfn_plots=expand(
             "output_plots/tabpfn_{shots}-shot_roc_curve.png",
+            shots=NUM_SHOT_VALUES_TABPFN
+        ),
+        tabpfn_hourly_plots=expand(
+            "output_plots/tabpfn-hourly_{shots}-shot_roc_curve.png",
+            shots=NUM_SHOT_VALUES_TABPFN
+        ),
+        tabpfn_stats_plots=expand(
+            "output_plots/tabpfn-stats_{shots}-shot_roc_curve.png",
+            shots=NUM_SHOT_VALUES_TABPFN
+        ),
+        tabpfn_hourly_stats_plots=expand(
+            "output_plots/tabpfn-hourly-stats_{shots}-shot_roc_curve.png",
             shots=NUM_SHOT_VALUES_TABPFN
         ),
 
@@ -57,6 +72,39 @@ rule process_data:
     run:
         # Use shell() function with f-string
         shell(f"python {input.script} --input '{input.raw_data}' --output '{output.processed_data}'")
+
+rule process_data_hourly:
+    input:
+        script="code/1_process_data.py",
+        raw_data=config["inputdata_path"] + "data.parquet"
+    output:
+        processed_data_hourly="output_data/processed_data_hourly.parquet"
+    threads: 1
+    run:
+        # Use shell() function with f-string
+        shell(f"python {input.script} --input '{input.raw_data}' --output '{output.processed_data_hourly}' --hourly")
+
+rule process_data_stats:
+    input:
+        script="code/1_process_data.py",
+        raw_data=config["inputdata_path"] + "data.parquet"
+    output:
+        processed_data_stats="output_data/processed_data_stats.parquet"
+    threads: 1
+    run:
+        # Use shell() function with f-string
+        shell(f"python {input.script} --input '{input.raw_data}' --output '{output.processed_data_stats}' --stats")
+
+rule process_data_hourly_stats:
+    input:
+        script="code/1_process_data.py",
+        raw_data=config["inputdata_path"] + "data.parquet"
+    output:
+        processed_data_hourly_stats="output_data/processed_data_hourly_stats.parquet"
+    threads: 1
+    run:
+        # Use shell() function with f-string
+        shell(f"python {input.script} --input '{input.raw_data}' --output '{output.processed_data_hourly_stats}' --hourly --stats")
 
 rule baseline_logistic:
     input:
@@ -168,6 +216,72 @@ rule evaluate_tabpfn_with_shots:
             f"--num_shots {shots_wc}"
         )
 
+rule evaluate_tabpfn_hourly_with_shots:
+    input:
+        script="code/5_evaluate_TabPFN.py",
+        processed_data="output_data/processed_data_hourly.parquet"
+    output:
+        results="output_data/tabpfn-hourly_{shots}-shot_results.csv",
+        plot="output_plots/tabpfn-hourly_{shots}-shot_roc_curve.png"
+    threads: 1
+    run:
+        shots_wc = wildcards.shots
+        output_dir = os.path.dirname(output.results)
+        plot_dir = os.path.dirname(output.plot)
+
+        shell(
+            f"python {input.script} "
+            f"--processed_data_path '{input.processed_data}' "
+            f"--output_dir '{output_dir}' "
+            f"--plot_dir '{plot_dir}' "
+            f"--num_shots {shots_wc} "
+            f"--hourly"
+        )
+
+rule evaluate_tabpfn_stats_with_shots:
+    input:
+        script="code/5_evaluate_TabPFN.py",
+        processed_data="output_data/processed_data_stats.parquet"
+    output:
+        results="output_data/tabpfn-stats_{shots}-shot_results.csv",
+        plot="output_plots/tabpfn-stats_{shots}-shot_roc_curve.png"
+    threads: 1
+    run:
+        shots_wc = wildcards.shots
+        output_dir = os.path.dirname(output.results)
+        plot_dir = os.path.dirname(output.plot)
+
+        shell(
+            f"python {input.script} "
+            f"--processed_data_path '{input.processed_data}' "
+            f"--output_dir '{output_dir}' "
+            f"--plot_dir '{plot_dir}' "
+            f"--num_shots {shots_wc} "
+            f"--stats"
+        )
+
+rule evaluate_tabpfn_hourly_stats_with_shots:
+    input:
+        script="code/5_evaluate_TabPFN.py",
+        processed_data="output_data/processed_data_hourly_stats.parquet"
+    output:
+        results="output_data/tabpfn-hourly-stats_{shots}-shot_results.csv",
+        plot="output_plots/tabpfn-hourly-stats_{shots}-shot_roc_curve.png"
+    threads: 1
+    run:
+        shots_wc = wildcards.shots
+        output_dir = os.path.dirname(output.results)
+        plot_dir = os.path.dirname(output.plot)
+
+        shell(
+            f"python {input.script} "
+            f"--processed_data_path '{input.processed_data}' "
+            f"--output_dir '{output_dir}' "
+            f"--plot_dir '{plot_dir}' "
+            f"--num_shots {shots_wc} "
+            f"--hourly --stats"
+        )
+
 rule aggregate_results:
     input:
         llm_results=expand(
@@ -178,6 +292,18 @@ rule aggregate_results:
         tabpfn_results=expand(
             "output_data/tabpfn_{shots}-shot_results.csv",
             shots=NUM_SHOT_VALUES_TABPFN
+        ),
+        tabpfn_hourly_results=expand(
+            "output_data/tabpfn-hourly_{shots}-shot_results.csv",
+            shots=NUM_SHOT_VALUES_TABPFN
+        ),
+        tabpfn_stats_results=expand(
+            "output_data/tabpfn-stats_{shots}-shot_results.csv",
+            shots=NUM_SHOT_VALUES_TABPFN
+        ),
+        tabpfn_hourly_stats_results=expand(
+            "output_data/tabpfn-hourly-stats_{shots}-shot_results.csv",
+            shots=NUM_SHOT_VALUES_TABPFN
         )
     output:
         aggregated_results="output_data/evaluation_results.csv"
@@ -187,7 +313,9 @@ rule aggregate_results:
         import os
 
         # Combine all input file paths into a single list
-        all_input_files = list(input.llm_results) + list(input.tabpfn_results)
+        all_input_files = (list(input.llm_results) + list(input.tabpfn_results) + 
+                          list(input.tabpfn_hourly_results) + list(input.tabpfn_stats_results) + 
+                          list(input.tabpfn_hourly_stats_results))
         
         dataframes_to_concat = []
 

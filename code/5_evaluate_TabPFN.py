@@ -53,10 +53,25 @@ parser.add_argument(
     default=0,
     help="Number of examples per class for few-shot training (0 for full training set).",
 )
+parser.add_argument(
+    "--hourly",
+    action="store_true",
+    help="Use hourly aggregated data (changes model name suffix for output files).",
+)
+parser.add_argument(
+    "--stats",
+    action="store_true",
+    help="Use comprehensive statistics aggregated data (changes model name suffix for output files).",
+)
 args = parser.parse_args()
 
 # Define output file paths
-model_name = "tabpfn"
+model_suffix = ""
+if args.hourly:
+    model_suffix += "-hourly"
+if args.stats:
+    model_suffix += "-stats"
+model_name = f"tabpfn{model_suffix}"
 output_csv_path = os.path.join(
     args.output_dir, f"{model_name}_{args.num_shots}-shot_results.csv"
 )
@@ -79,12 +94,12 @@ data = data.filter(pl.col("Mortality in ICU").is_not_null())
 X_all_df = data.select(
     "Pre-ICU LOS (days)",
     "Age (years)",
-    "GCS",
-    "HR",
-    "MAP",
+    pl.col("^GCS.*$"),
+    pl.col("^HR.*$"),
+    pl.col("^MAP.*$"),
     "Urine output (ml)",
-    "RR",
-    "Temp (C)",
+    pl.col("^RR.*$"),
+    pl.col("^Temp (C).*$"),
     "Admission Type",
     "Admission Urgency",
     "MechVent",
