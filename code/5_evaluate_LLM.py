@@ -18,6 +18,7 @@ from sklearn.metrics import (
     roc_curve,
 )
 from tqdm import tqdm
+from _utils import bootstrap_auc
 
 # Set seeds for reproducibility
 SEED = 42
@@ -479,12 +480,49 @@ if none_predictions_count > 0:
 print(f"--- Finished evaluation for {model_config['name']} ---")
 ################################################################################
 
+### CALCULATE METRICS ###
+
+# Calculate AUC with bootstrapping
+auc_stats = bootstrap_auc(
+    final_actual_labels,
+    final_probability_predictions,
+    n_bootstrap=100,
+    random_state=SEED,
+)
+
+# For metrics requiring binary predictions, apply a 0.5 threshold
+binary_predictions = [
+    1 if p >= 0.5 else 0 for p in final_probability_predictions
+]
+
+# Calculate metrics only if there's valid data after filtering
+model_metrics = {
+    "accuracy": accuracy_score(final_actual_labels, binary_predictions),
+    "auc": auc_stats["auc"],
+    "auc_ci_lower": auc_stats["auc_ci_lower"],
+    "auc_ci_upper": auc_stats["auc_ci_upper"],
+    "f1": f1_score(final_actual_labels, binary_predictions, zero_division=0),
+    "cm": confusion_matrix(final_actual_labels, binary_predictions).tolist(),
+    "missingness": none_predictions_count / total_predictions,
+}
+print(
+    f"Model: {model_config['name']}, "
+    f"Num Shots: {args.num_shots}, "
+    f"missing Predictions: {model_metrics['missingness']:.1%}, "
+    f"Accuracy: {model_metrics['accuracy']:.2f}, "
+    f"AUC: {model_metrics['auc']:.3f} [{model_metrics['auc_ci_lower']:.3f}-{model_metrics['auc_ci_upper']:.3f}], "
+    f"F1 Score: {model_metrics['f1']:.2f}, "
+    f"Confusion Matrix: {model_metrics['cm']}"
+)
+
 ### SAVE RESULTS ###
 # Create a DataFrame with patient IDs, actual labels, and predicted probabilities
 predictions_df = pd.DataFrame(
     {
         "model_name": model_config["name"],
         "num_shots": args.num_shots,
+        "auc_ci_lower": auc_stats["auc_ci_lower"],
+        "auc_ci_upper": auc_stats["auc_ci_upper"],
         "global_icu_stay_id": icu_ids,
         "actual_label": actual_labels,
         "predicted_probability": probability_predictions,
@@ -496,31 +534,6 @@ predictions_df.set_index("global_icu_stay_id", inplace=True)
 predictions_df.to_csv(output_csv_path)
 print(f"Per-patient evaluation results for {model_config['name']} saved to {output_csv_path}") # fmt: skip
 
-### CALCULATE METRICS ###
-# For metrics requiring binary predictions, apply a 0.5 threshold
-# final_probability_predictions is guaranteed not to have None here.
-binary_predictions = [
-    1 if p >= 0.5 else 0 for p in final_probability_predictions
-]
-
-# Calculate metrics only if there's valid data after filtering
-model_metrics = {
-    "accuracy": accuracy_score(final_actual_labels, binary_predictions),
-    "auc": roc_auc_score(final_actual_labels, final_probability_predictions),
-    "f1": f1_score(final_actual_labels, binary_predictions, zero_division=0),
-    "cm": confusion_matrix(final_actual_labels, binary_predictions).tolist(),
-    "missingness": none_predictions_count / total_predictions,
-}
-print(
-    f"Model: {model_config['name']}, "
-    f"Num Shots: {args.num_shots}, "
-    f"missing Predictions: {model_metrics['missingness']:.1%}, "
-    f"Accuracy: {model_metrics['accuracy']:.2f}, "
-    f"AUC: {model_metrics['auc']:.2f}, "
-    f"F1 Score: {model_metrics['f1']:.2f}, "
-    f"Confusion Matrix: {model_metrics['cm']}"
-)
-
 ### SAVE ROC CURVE ###
 # Calculate ROC curve using filtered probabilities
 fpr, tpr, thresholds = roc_curve(
@@ -529,7 +542,7 @@ fpr, tpr, thresholds = roc_curve(
 roc_auc_val = auc(fpr, tpr)
 
 plt.figure()
-plt.plot(fpr, tpr, lw=2, label=f"ROC curve (AUC = {roc_auc_val:.2f})")
+plt.plot(fpr, tpr, lw=2, label=f"ROC curve (AUC = {roc_auc_val:.2f} [{auc_stats['auc_ci_lower']:.2f}-{auc_stats['auc_ci_upper']:.2f}])")
 plt.plot([0, 1], [0, 1], color="black", lw=2, linestyle="--")
 plt.xlim([0.0, 1.0])
 plt.ylim([0.0, 1.05])

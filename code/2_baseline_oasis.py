@@ -4,6 +4,7 @@ import os
 import matplotlib.pyplot as plt
 import polars as pl
 from sklearn.metrics import auc, roc_curve
+from _utils import bootstrap_auc
 
 # parse command line arguments
 parser = argparse.ArgumentParser()
@@ -42,13 +43,21 @@ data = data.filter(pl.col("OASIS ICU Mortality Rate").is_not_null())
 y = data.select("Mortality in ICU").to_numpy().flatten()
 y_pred_prob = data.select("OASIS ICU Mortality Rate").to_numpy().flatten()
 
+# Calculate AUC with bootstrapping
+auc_stats = bootstrap_auc(y, y_pred_prob, n_bootstrap=100, random_state=42)
+
 # Calculate ROC curve
 fpr, tpr, thresholds = roc_curve(y, y_pred_prob)
 roc_auc = auc(fpr, tpr)
 
-# Plot ROC curve
+# Plot ROC curve with confidence interval
 plt.figure()
-plt.plot(fpr, tpr, lw=2, label=f"ROC curve (AUC = {roc_auc:.2f})")
+plt.plot(
+    fpr,
+    tpr,
+    lw=2,
+    label=f"ROC curve (AUC = {auc_stats['auc']:.3f} [{auc_stats['auc_ci_lower']:.3f}-{auc_stats['auc_ci_upper']:.3f}])",
+)
 plt.plot([0, 1], [0, 1], color="black", lw=2, linestyle="--")
 plt.xlim([0.0, 1.0])
 plt.ylim([0.0, 1.05])

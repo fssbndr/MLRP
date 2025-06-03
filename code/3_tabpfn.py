@@ -7,6 +7,7 @@ import torch
 from sklearn.metrics import auc, roc_curve
 
 from tabpfn import TabPFNRegressor
+from _utils import bootstrap_auc
 
 device = "mps" if torch.backends.mps.is_available() else "cpu"
 
@@ -84,13 +85,23 @@ regressor.fit(X_train_np, y_train_np)
 # Predict probabilities on test data
 y_pred_prob_test = regressor.predict(X_test_np)
 
+# Calculate AUC with bootstrapping
+auc_stats = bootstrap_auc(
+    y_test_np, y_pred_prob_test, n_bootstrap=100, random_state=42
+)
+
 # Calculate ROC curve using test data
 fpr, tpr, thresholds = roc_curve(y_test_np, y_pred_prob_test)
 roc_auc = auc(fpr, tpr)
 
-# Plot ROC curve
+# Plot ROC curve with confidence interval
 plt.figure()
-plt.plot(fpr, tpr, lw=2, label=f"ROC curve (AUC = {roc_auc:.2f}) on Test Set")
+plt.plot(
+    fpr,
+    tpr,
+    lw=2,
+    label=f"ROC curve (AUC = {auc_stats['auc']:.3f} [{auc_stats['auc_ci_lower']:.3f}-{auc_stats['auc_ci_upper']:.3f}])",
+)
 plt.plot([0, 1], [0, 1], color="black", lw=2, linestyle="--")
 plt.xlim([0.0, 1.0])
 plt.ylim([0.0, 1.05])

@@ -15,6 +15,7 @@ from sklearn.metrics import (
     accuracy_score,
 )
 from tabpfn import TabPFNRegressor
+from _utils import bootstrap_auc
 
 # Set seeds for reproducibility
 SEED = 42
@@ -192,12 +193,38 @@ predictions = (y_pred_prob_test > 0.5).astype(int)
 predicted_probabilities = y_pred_prob_test
 ################################################################################
 
+### CALCULATE METRICS ###
+
+# Calculate AUC with bootstrapping
+auc_stats = bootstrap_auc(
+    actual_labels, predicted_probabilities, n_bootstrap=100, random_state=SEED
+)
+
+model_metrics = {
+    "accuracy": accuracy_score(actual_labels, predictions),
+    "auc": auc_stats["auc"],
+    "auc_ci_lower": auc_stats["auc_ci_lower"],
+    "auc_ci_upper": auc_stats["auc_ci_upper"],
+    "f1": f1_score(actual_labels, predictions, zero_division=0),
+    "cm": confusion_matrix(actual_labels, predictions).tolist(),
+}
+print(
+    f"Model: {model_name}, "
+    f"Num Shots: {args.num_shots}, "
+    f"Accuracy: {model_metrics['accuracy']:.2f}, "
+    f"AUC: {model_metrics['auc']:.3f} [{model_metrics['auc_ci_lower']:.3f}-{model_metrics['auc_ci_upper']:.3f}], "
+    f"F1 Score: {model_metrics['f1']:.2f}, "
+    f"Confusion Matrix: {model_metrics['cm']}"
+)
+
 ### SAVE RESULTS ###
 # Create a Polars DataFrame with patient IDs, actual labels, and predictions
 predictions_df = pl.DataFrame(
     {
         "model_name": "PriorLabs/TabPFNv2",
         "num_shots": args.num_shots,
+        "auc_ci_lower": auc_stats["auc_ci_lower"],
+        "auc_ci_upper": auc_stats["auc_ci_upper"],
         "global_icu_stay_id": icu_ids_test_np,
         "actual_label": actual_labels,
         "predicted_probability": predicted_probabilities,
@@ -207,30 +234,13 @@ predictions_df = pl.DataFrame(
 predictions_df.write_csv(output_csv_path)
 print(f"Per-patient evaluation results for {model_name} saved to {output_csv_path}") # fmt: skip
 
-### CALCULATE METRICS ###
-
-model_metrics = {
-    "accuracy": accuracy_score(actual_labels, predictions),
-    "auc": roc_auc_score(actual_labels, predicted_probabilities),
-    "f1": f1_score(actual_labels, predictions, zero_division=0),
-    "confusion_matrix": confusion_matrix(actual_labels, predictions).tolist(),
-}
-print(
-    f"Model: {model_name}, "
-    f"Num Shots: {args.num_shots}, "
-    f"Accuracy: {model_metrics['accuracy']:.2f}, "
-    f"AUC: {model_metrics['auc']:.2f}, "
-    f"F1 Score: {model_metrics['f1']:.2f}, "
-    f"Confusion Matrix: {model_metrics['confusion_matrix']}"
-)
-
 ### SAVE ROC CURVE ###
 # Calculate ROC curve using actual labels and predicted probabilities
 fpr, tpr, thresholds = roc_curve(actual_labels, predicted_probabilities)
 roc_auc_val = auc(fpr, tpr)
 
 plt.figure()
-plt.plot(fpr, tpr, lw=2, label=f"ROC curve (AUC = {roc_auc_val:.2f})")
+plt.plot(fpr, tpr, lw=2, label=f"ROC curve (AUC = {roc_auc_val:.2f} [{auc_stats['auc_ci_lower']:.2f}-{auc_stats['auc_ci_upper']:.2f}])")
 plt.plot([0, 1], [0, 1], color="black", lw=2, linestyle="--")
 plt.xlim([0.0, 1.0])
 plt.ylim([0.0, 1.05])
