@@ -16,6 +16,8 @@ from sklearn.metrics import (
 )
 from tabpfn import TabPFNRegressor
 from _utils import bootstrap_auc
+from joblib import Parallel, delayed
+from tqdm import tqdm
 
 # Set seeds for reproducibility
 SEED = 42
@@ -27,7 +29,7 @@ device = "mps" if torch.backends.mps.is_available() else "cpu"
 
 # Parse command line arguments
 parser = argparse.ArgumentParser(
-    description="Evaluate TabPFN with varying few-shot examples."
+    description="Evaluate TabPFN with varying few-shot timeseries examples."
 )
 parser.add_argument(
     "--processed_data_path",
@@ -66,12 +68,7 @@ parser.add_argument(
 args = parser.parse_args()
 
 # Define output file paths
-model_suffix = ""
-if args.hourly:
-    model_suffix += "-hourly"
-if args.stats:
-    model_suffix += "-stats"
-model_name = f"tabpfn{model_suffix}"
+model_name = "tabpfn-timeseries"
 output_csv_path = os.path.join(
     args.output_dir, f"{model_name}_{args.num_shots}-shot_results.csv"
 )
@@ -92,17 +89,19 @@ data = data.filter(pl.col("Mortality in ICU").is_not_null())
 
 # Prepare features and target
 X_all_df = data.select(
+    "Global ICU Stay ID",
     "Pre-ICU LOS (days)",
     "Age (years)",
-    pl.col("^GCS.*$"),
-    pl.col("^HR.*$"),
-    pl.col("^MAP.*$"),
-    "Urine output (ml)",
-    pl.col("^RR.*$"),
-    pl.col("^Temp (C).*$"),
     "Admission Type",
     "Admission Urgency",
     "MechVent",
+    pl.col("Hour Relative to Admission").clip(0, 25),
+    pl.col("GCS"),
+    pl.col("HR"),
+    pl.col("MAP"),
+    "Urine output (ml)",
+    pl.col("RR"),
+    pl.col("Temp (C)"),
 )
 y_all_np = data.select("Mortality in ICU").to_numpy().flatten()
 icu_ids_all_series = data["Global ICU Stay ID"]
@@ -121,14 +120,15 @@ train_mask = (data["split_80_20"] == "train").to_numpy()
 test_mask = (data["split_80_20"] == "test").to_numpy()
 
 # Split features and target
-X_train_np = X_all_df_dummies.filter(pl.Series(train_mask)).to_numpy()
-X_test_np = X_all_df_dummies.filter(pl.Series(test_mask)).to_numpy()
+X_train_df = X_all_df_dummies.filter(pl.Series(train_mask))
 
 y_train_np = y_all_np[train_mask]
 y_test_np = y_all_np[test_mask]
 
 # Get ICU IDs for the test set
-icu_ids_test_series = icu_ids_all_series.filter(pl.Series(test_mask))
+icu_ids_test_series = icu_ids_all_series.filter(pl.Series(test_mask)).unique(
+    maintain_order=True
+)
 icu_ids_test_np = icu_ids_test_series.to_numpy().flatten()
 
 # Prepare Polars DataFrames for few-shot sampling from the training set
@@ -149,11 +149,22 @@ train_df = X_train_full_df.with_columns(
     y_train_full_series.alias("mortality_in_icu")
 )
 
-died_df = train_df.filter(pl.col("mortality_in_icu") == 1)
-survived_df = train_df.filter(pl.col("mortality_in_icu") == 0)
+mortality_df = train_df.group_by("Global ICU Stay ID").agg(
+    pl.col("mortality_in_icu").max()
+)
+died_list = (
+    mortality_df.filter(pl.col("mortality_in_icu") == 1)
+    .select("Global ICU Stay ID")
+    .to_series()
+)
+survived_list = (
+    mortality_df.filter(pl.col("mortality_in_icu") == 0)
+    .select("Global ICU Stay ID")
+    .to_series()
+)
 
-n_sample_died = min(args.num_shots, len(died_df))
-n_sample_survived = min(args.num_shots, len(survived_df))
+n_sample_died = min(args.num_shots, len(died_list))
+n_sample_survived = min(args.num_shots, len(survived_list))
 
 # Print warnings if fewer examples are available than requested
 if n_sample_died < args.num_shots:
@@ -171,39 +182,81 @@ few_shot_list = []
 
 # Sample from 'died' class
 if n_sample_died > 0:
-    sampled_died = died_df.sample(n=n_sample_died, seed=SEED, shuffle=True)
+    sampled_died = died_list.sample(n=n_sample_died, seed=SEED, shuffle=True)
     few_shot_list.append(sampled_died)
 
 # Sample from 'survived' class
 if n_sample_survived > 0:
-    sampled_survived = survived_df.sample(
+    sampled_survived = survived_list.sample(
         n=n_sample_survived, seed=SEED, shuffle=True
     )
     few_shot_list.append(sampled_survived)
 
 # Concatenate the sampled dataframes and shuffle to mix died/survived cases
-few_shot_examples = pl.concat(few_shot_list).sample(
-    fraction=1.0, shuffle=True, seed=SEED
+few_shot_examples = (
+    pl.concat(few_shot_list)
+    .to_frame()
+    .sample(fraction=1.0, shuffle=True, seed=SEED)
+    .join(train_df, on="Global ICU Stay ID", how="inner", coalesce=True)
 )
 
-X_fit_df = few_shot_examples.drop("mortality_in_icu")
+X_fit_df = few_shot_examples.drop("mortality_in_icu").to_pandas()
 y_fit_series = few_shot_examples["mortality_in_icu"]
 
-X_fit_np = X_fit_df.to_numpy()
-y_fit_np = y_fit_series.to_numpy().flatten()
-
 print(
-    f"Training TabPFN on {len(X_fit_np)} few-shot samples ({n_sample_died} died, {n_sample_survived} survived)."
+    f"Training TabPFN on {len(X_fit_df)} few-shot samples "
+    f"({n_sample_died} died, {n_sample_survived} survived)."
 )
 
 ################################################################################
 # TABPFN MODEL
 # Instantiate and fit the TabPFN Regressor on training data
-regressor = TabPFNRegressor()
-regressor.fit(X_fit_np, y_fit_np)
-y_pred_prob_test = regressor.predict(X_test_np)
+regressor = TabPFNRegressor(ignore_pretraining_limits=True)
+regressor.fit(X_fit_df, y_fit_series)
 
-actual_labels = y_test_np
+
+def predict_for_icu_id(id, regressor, X_all_df_dummies):
+    """Predict for a single ICU ID"""
+    X_test_pandas = X_all_df_dummies.filter(
+        pl.col("Global ICU Stay ID") == id
+    ).to_pandas()
+    predictions = regressor.predict(X_test_pandas)
+    # Return the last prediction for this ICU ID
+    return id, predictions[-1:]
+
+
+# Parallelize predictions with joblib and progress bar
+print(f"Evaluating {len(icu_ids_test_np)} ICU IDs...")
+
+predictions_list = Parallel(n_jobs=-1)(
+    delayed(predict_for_icu_id)(icu_id, regressor, X_all_df_dummies)
+    for icu_id in tqdm(icu_ids_test_np, desc="Predicting")
+)
+
+# Extract predictions from tuples and ensure order matches icu_ids_test_np
+prediction_dict = {icu_id: pred[0] for icu_id, pred in predictions_list}
+y_pred_prob_test = np.array(
+    [prediction_dict[icu_id] for icu_id in icu_ids_test_np]
+)
+
+# Create arrays aligned with icu_ids_test_np
+test_mortality_df = (
+    data.filter(pl.Series(test_mask))
+    .group_by("Global ICU Stay ID")
+    .agg(pl.col("Mortality in ICU").max().alias("final_mortality"))
+)
+
+# Simplify actual labels creation using join
+actual_labels = (
+    pl.DataFrame({"Global ICU Stay ID": icu_ids_test_np})
+    .join(test_mortality_df, on="Global ICU Stay ID", how="left")
+    .fill_null(0)
+    .select("final_mortality")
+    .to_numpy()
+    .flatten()
+    .astype(int)
+)
+
 predictions = (y_pred_prob_test > 0.5).astype(int)
 predicted_probabilities = y_pred_prob_test
 ################################################################################
@@ -256,7 +309,12 @@ fpr, tpr, thresholds = roc_curve(actual_labels, predicted_probabilities)
 roc_auc_val = auc(fpr, tpr)
 
 plt.figure()
-plt.plot(fpr, tpr, lw=2, label=f"ROC curve (AUC = {roc_auc_val:.2f} [{auc_stats['auc_ci_lower']:.2f}-{auc_stats['auc_ci_upper']:.2f}])")
+plt.plot(
+    fpr,
+    tpr,
+    lw=2,
+    label=f"ROC curve (AUC = {roc_auc_val:.2f} [{auc_stats['auc_ci_lower']:.2f}-{auc_stats['auc_ci_upper']:.2f}])",
+)
 plt.plot([0, 1], [0, 1], color="black", lw=2, linestyle="--")
 plt.xlim([0.0, 1.0])
 plt.ylim([0.0, 1.05])

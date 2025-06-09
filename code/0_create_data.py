@@ -60,7 +60,7 @@ data = (
     .join(labs, on=[STAY_ID, TIME_COL], how="full", coalesce=True)
     .join(resp, on=[STAY_ID, TIME_COL], how="full", coalesce=True)
     .join(inout, on=[STAY_ID, TIME_COL], how="full", coalesce=True)
-    .join(OASIS, on=STAY_ID, how="full", coalesce=True)
+    .join(OASIS, on=STAY_ID, how="left", coalesce=True)
     .join(ID, on=STAY_ID, how="right")
 )
 
@@ -99,7 +99,7 @@ data = data.join(vent, on=[STAY_ID, TIME_COL], how="left", coalesce=True)
 # filter the data to only include the first 24 hours of each ICU stay
 data = data.filter(
     pl.col(TIME_COL).is_between(0, SECONDS_IN_A_DAY, closed="both")
-)
+).with_columns(pl.col(TIME_COL).clip(0, SECONDS_IN_A_DAY - 1))
 
 # Ensure output directory exists
 output_dir = os.path.dirname(args.output)

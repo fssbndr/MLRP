@@ -7,6 +7,7 @@ LLM_MODEL_IDS = ["llama_3.2_3b"] # , "llama_3.1_8b"]
 # NUM_SHOT_VALUES will be [0, 1, 2, 4, 8, 16, 32, 64, 128, 256] (2^0 to 2^8)
 NUM_SHOT_VALUES = [0] + [2**i for i in range(4)]
 NUM_SHOT_VALUES_TABPFN = [2**i for i in range(9)]
+NUM_SHOT_VALUES_TABPFN_TS = [2**i for i in range(5)]
 
 rule all:
     input:
@@ -14,6 +15,7 @@ rule all:
         processed_data_hourly="output_data/processed_data_hourly.parquet",
         processed_data_stats="output_data/processed_data_stats.parquet",
         processed_data_hourly_stats="output_data/processed_data_hourly_stats.parquet",
+        processed_data_hourly_long="output_data/processed_data_hourly_long.parquet",
         log_summary="output_data/baseline_logistic_summary.txt",
         log_plot="output_plots/baseline_logistic_roc_curve.png",
         xgboost_plot="output_plots/baseline_xgboost_roc_curve.png",
@@ -43,6 +45,13 @@ rule all:
             "output_plots/tabpfn-hourly-stats_{shots}-shot_roc_curve.png",
             shots=NUM_SHOT_VALUES_TABPFN
         ),
+        tabpfn_timeseries_plots=expand(
+            "output_plots/tabpfn-timeseries_{shots}-shot_roc_curve.png",
+            shots=NUM_SHOT_VALUES_TABPFN_TS
+        ),
+        summary_plot_auc_model_shots="output_plots/roc_curves_faceted_by_shots.png",
+        summary_plot_auc_shots_model="output_plots/roc_curves_faceted_by_model.png",
+        summary_plot_metrics_evolution="output_plots/metrics_evolution_with_shots.png",
 
 rule create_data:
     input:
@@ -105,6 +114,17 @@ rule process_data_hourly_stats:
     run:
         # Use shell() function with f-string
         shell(f"python {input.script} --input '{input.raw_data}' --output '{output.processed_data_hourly_stats}' --hourly --stats")
+
+rule process_data_hourly_long:
+    input:
+        script="code/1_process_data.py",
+        raw_data=config["inputdata_path"] + "data.parquet"
+    output:
+        processed_data_hourly_long="output_data/processed_data_hourly_long.parquet"
+    threads: 1
+    run:
+        # Use shell() function with f-string
+        shell(f"python {input.script} --input '{input.raw_data}' --output '{output.processed_data_hourly_long}' --hourly-long")
 
 rule baseline_logistic:
     input:
@@ -282,6 +302,27 @@ rule evaluate_tabpfn_hourly_stats_with_shots:
             f"--hourly --stats"
         )
 
+rule evaluate_tabpfn_timeseries_with_shots:
+    input:
+        script="code/5_evaluate_TabPFN_TimeSeries.py",
+        processed_data="output_data/processed_data_hourly_long.parquet"
+    output:
+        results="output_data/tabpfn-timeseries_{shots}-shot_results.csv",
+        plot="output_plots/tabpfn-timeseries_{shots}-shot_roc_curve.png"
+    threads: 1
+    run:
+        shots_wc = wildcards.shots
+        output_dir = os.path.dirname(output.results)
+        plot_dir = os.path.dirname(output.plot)
+
+        shell(
+            f"python {input.script} "
+            f"--processed_data_path '{input.processed_data}' "
+            f"--output_dir '{output_dir}' "
+            f"--plot_dir '{plot_dir}' "
+            f"--num_shots {shots_wc} "
+        )
+
 rule aggregate_results:
     input:
         llm_results=expand(
@@ -304,6 +345,10 @@ rule aggregate_results:
         tabpfn_hourly_stats_results=expand(
             "output_data/tabpfn-hourly-stats_{shots}-shot_results.csv",
             shots=NUM_SHOT_VALUES_TABPFN
+        ),
+        tabpfn_timeseries_results=expand(
+            "output_data/tabpfn-timeseries_{shots}-shot_results.csv",
+            shots=NUM_SHOT_VALUES_TABPFN_TS
         )
     output:
         aggregated_results="output_data/evaluation_results.csv"
@@ -315,7 +360,7 @@ rule aggregate_results:
         # Combine all input file paths into a single list
         all_input_files = (list(input.llm_results) + list(input.tabpfn_results) + 
                           list(input.tabpfn_hourly_results) + list(input.tabpfn_stats_results) + 
-                          list(input.tabpfn_hourly_stats_results))
+                          list(input.tabpfn_hourly_stats_results) + list(input.tabpfn_timeseries_results))
         
         dataframes_to_concat = []
 
