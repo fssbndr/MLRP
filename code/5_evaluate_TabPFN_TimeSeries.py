@@ -65,10 +65,15 @@ parser.add_argument(
     action="store_true",
     help="Use comprehensive statistics aggregated data (changes model name suffix for output files).",
 )
+parser.add_argument(
+    "--survival",
+    action="store_true",
+    help="Use survival analysis format data with time_start and time_stop columns.",
+)
 args = parser.parse_args()
 
 # Define output file paths
-model_name = "tabpfn-timeseries"
+model_name = "tabpfn-survival" if args.survival else "tabpfn-timeseries"
 output_csv_path = os.path.join(
     args.output_dir, f"{model_name}_{args.num_shots}-shot_results.csv"
 )
@@ -95,7 +100,7 @@ X_all_df = data.select(
     "Admission Type",
     "Admission Urgency",
     "MechVent",
-    pl.col("Hour Relative to Admission").clip(0, 25),
+    pl.col("time_start", "time_stop") if args.survival else pl.col("Hour Relative to Admission").clip(0, 25),
     pl.col("GCS"),
     pl.col("HR"),
     pl.col("MAP"),

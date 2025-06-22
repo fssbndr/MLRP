@@ -16,6 +16,7 @@ rule all:
         processed_data_stats="output_data/processed_data_stats.parquet",
         processed_data_hourly_stats="output_data/processed_data_hourly_stats.parquet",
         processed_data_hourly_long="output_data/processed_data_hourly_long.parquet",
+        processed_data_survival="output_data/processed_data_survival.parquet",
         log_summary="output_data/baseline_logistic_summary.txt",
         log_plot="output_plots/baseline_logistic_roc_curve.png",
         xgboost_plot="output_plots/baseline_xgboost_roc_curve.png",
@@ -47,6 +48,10 @@ rule all:
         ),
         tabpfn_timeseries_plots=expand(
             "output_plots/tabpfn-timeseries_{shots}-shot_roc_curve.png",
+            shots=NUM_SHOT_VALUES_TABPFN_TS
+        ),
+        tabpfn_survival_plots=expand(
+            "output_plots/tabpfn-survival_{shots}-shot_roc_curve.png",
             shots=NUM_SHOT_VALUES_TABPFN_TS
         ),
         summary_plot_auc_model_shots="output_plots/roc_curves_faceted_by_shots.png",
@@ -125,6 +130,17 @@ rule process_data_hourly_long:
     run:
         # Use shell() function with f-string
         shell(f"python {input.script} --input '{input.raw_data}' --output '{output.processed_data_hourly_long}' --hourly-long")
+
+rule process_data_survival:
+    input:
+        script="code/1_process_data.py",
+        raw_data=config["inputdata_path"] + "data.parquet"
+    output:
+        processed_data_survival="output_data/processed_data_survival.parquet"
+    threads: 1
+    run:
+        # Use shell() function with f-string
+        shell(f"python {input.script} --input '{input.raw_data}' --output '{output.processed_data_survival}' --survival")
 
 rule baseline_logistic:
     input:
@@ -323,6 +339,28 @@ rule evaluate_tabpfn_timeseries_with_shots:
             f"--num_shots {shots_wc} "
         )
 
+rule evaluate_tabpfn_survival_with_shots:
+    input:
+        script="code/5_evaluate_TabPFN_TimeSeries.py",
+        processed_data="output_data/processed_data_survival.parquet"
+    output:
+        results="output_data/tabpfn-survival_{shots}-shot_results.csv",
+        plot="output_plots/tabpfn-survival_{shots}-shot_roc_curve.png"
+    threads: 1
+    run:
+        shots_wc = wildcards.shots
+        output_dir = os.path.dirname(output.results)
+        plot_dir = os.path.dirname(output.plot)
+
+        shell(
+            f"python {input.script} "
+            f"--processed_data_path '{input.processed_data}' "
+            f"--output_dir '{output_dir}' "
+            f"--plot_dir '{plot_dir}' "
+            f"--num_shots {shots_wc} "
+            f"--survival"
+        )
+
 rule aggregate_results:
     input:
         llm_results=expand(
@@ -349,6 +387,10 @@ rule aggregate_results:
         tabpfn_timeseries_results=expand(
             "output_data/tabpfn-timeseries_{shots}-shot_results.csv",
             shots=NUM_SHOT_VALUES_TABPFN_TS
+        ),
+        tabpfn_survival_results=expand(
+            "output_data/tabpfn-survival_{shots}-shot_results.csv",
+            shots=NUM_SHOT_VALUES_TABPFN_TS
         )
     output:
         aggregated_results="output_data/evaluation_results.csv"
@@ -360,7 +402,8 @@ rule aggregate_results:
         # Combine all input file paths into a single list
         all_input_files = (list(input.llm_results) + list(input.tabpfn_results) + 
                           list(input.tabpfn_hourly_results) + list(input.tabpfn_stats_results) + 
-                          list(input.tabpfn_hourly_stats_results) + list(input.tabpfn_timeseries_results))
+                          list(input.tabpfn_hourly_stats_results) + list(input.tabpfn_timeseries_results) +
+                          list(input.tabpfn_survival_results))
         
         dataframes_to_concat = []
 
@@ -374,3 +417,36 @@ rule aggregate_results:
         aggregated_df = pd.concat(dataframes_to_concat, ignore_index=True)
         aggregated_df.to_csv(output.aggregated_results, index=False)
         print(f"Successfully aggregated {len(dataframes_to_concat)} CSV files into {output.aggregated_results}.")
+
+rule tabpfn_all:
+    input:
+        processed_data="output_data/processed_data.parquet",
+        processed_data_hourly="output_data/processed_data_hourly.parquet", 
+        processed_data_stats="output_data/processed_data_stats.parquet",
+        processed_data_hourly_stats="output_data/processed_data_hourly_stats.parquet",
+        processed_data_hourly_long="output_data/processed_data_hourly_long.parquet",
+        tabpfn_plots=expand(
+            "output_plots/tabpfn_{shots}-shot_roc_curve.png",
+            shots=NUM_SHOT_VALUES_TABPFN
+        ),
+        tabpfn_hourly_plots=expand(
+            "output_plots/tabpfn-hourly_{shots}-shot_roc_curve.png",
+            shots=NUM_SHOT_VALUES_TABPFN
+        ),
+        tabpfn_stats_plots=expand(
+            "output_plots/tabpfn-stats_{shots}-shot_roc_curve.png",
+            shots=NUM_SHOT_VALUES_TABPFN
+        ),
+        tabpfn_hourly_stats_plots=expand(
+            "output_plots/tabpfn-hourly-stats_{shots}-shot_roc_curve.png",
+            shots=NUM_SHOT_VALUES_TABPFN
+        ),
+        tabpfn_timeseries_plots=expand(
+            "output_plots/tabpfn-timeseries_{shots}-shot_roc_curve.png",
+            shots=NUM_SHOT_VALUES_TABPFN_TS
+        ),
+        tabpfn_survival_plots=expand(
+            "output_plots/tabpfn-survival_{shots}-shot_roc_curve.png",
+            shots=NUM_SHOT_VALUES_TABPFN_TS
+        )
+

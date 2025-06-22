@@ -111,6 +111,7 @@ def load_processed_data(file_path):
 def _process_row(
     row_tuple,
     model_name: str,
+    model_id: str,
     few_shot_prompt_text: str,
     num_shots: int,
 ):
@@ -157,10 +158,12 @@ def _process_row(
     full_response_text = ""
 
     try:
+        options = {"num_ctx": 8192, "num_predict": 100}
         response = ollama.generate(
             model=model_name,
             prompt=prompt,
-            options={"num_predict": 100, "num_ctx": 8192},
+            # options=options,
+            think="think" in model_id,  # Use think mode for better reasoning
         )
         answer_part = response["response"].strip().lower()
         full_response_text = response["response"]
@@ -221,6 +224,7 @@ def _process_row(
 def evaluate_model(
     test_df: pd.DataFrame,
     model_name: str,
+    model_id: str,
     train_df: pd.DataFrame,
     num_shots: int,
     max_workers: int = 10,
@@ -291,6 +295,11 @@ def evaluate_model(
                 temp_prompt_parts.append(fs_summary_text)
         few_shot_prompt_text = "".join(temp_prompt_parts)
 
+    # Limit test_df if using think mode to avoid excessive processing
+    if "think" in model_id:
+        test_df = test_df.head(100)
+        print(f"Limited test set to {len(test_df)} samples for think mode")
+
     results_list = []
     tasks = []
 
@@ -301,6 +310,7 @@ def evaluate_model(
                     _process_row,
                     row_tuple,
                     model_name,
+                    model_id,
                     few_shot_prompt_text,
                     num_shots,
                 )
@@ -431,6 +441,7 @@ model_configs = [
     {"name": "llama3.2:3b-instruct-q8_0",         "id": "llama_3.2_3b"},
     {"name": "llama3.1:8b-instruct-q8_0",         "id": "llama_3.1_8b"},
     {"name": "qwen3:8b-q8_0",                     "id": "qwen_3_8b"},
+    {"name": "qwen3:8b-q8_0",                     "id": "qwen_3_8b_think"},
     {"name": "granite3.3:8b-instruct-q8_0",       "id": "granite_3.3_8b"},
     {"name": "mistral:7b-instruct-v0.3-q8_0",     "id": "mistral_7b"},
     {"name": "deepseek-r1:8b-llama-distill-q8_0", "id": "deepseek_r1_8b"},
@@ -455,6 +466,7 @@ print(f"--- Starting evaluation for {model_config['name']} ---")
 icu_ids, actual_labels, probability_predictions = evaluate_model(
     test_df=test_df,
     model_name=model_config["name"],
+    model_id=model_config["id"],
     train_df=train_df,
     num_shots=args.num_shots,
 )
@@ -553,7 +565,12 @@ fpr, tpr, thresholds = roc_curve(
 roc_auc_val = auc(fpr, tpr)
 
 plt.figure()
-plt.plot(fpr, tpr, lw=2, label=f"ROC curve (AUC = {roc_auc_val:.2f} [{auc_stats['auc_ci_lower']:.2f}-{auc_stats['auc_ci_upper']:.2f}])")
+plt.plot(
+    fpr,
+    tpr,
+    lw=2,
+    label=f"ROC curve (AUC = {roc_auc_val:.2f} [{auc_stats['auc_ci_lower']:.2f}-{auc_stats['auc_ci_upper']:.2f}])",
+)
 plt.plot([0, 1], [0, 1], color="black", lw=2, linestyle="--")
 plt.xlim([0.0, 1.0])
 plt.ylim([0.0, 1.05])

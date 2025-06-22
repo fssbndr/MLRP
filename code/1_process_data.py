@@ -28,6 +28,11 @@ parser.add_argument(
     action="store_true",
     help="Include hourly aggregations in long format (one row per patient per hour).",
 )
+parser.add_argument(
+    "--survival",
+    action="store_true",
+    help="Include survival analysis format with time_start and time_stop columns.",
+)
 args = parser.parse_args()
 
 # Ensure output directory exists
@@ -37,7 +42,7 @@ os.makedirs(os.path.dirname(args.output), exist_ok=True)
 source_data = pl.read_parquet(args.input)
 
 # Apply ICU length of stay filter if hourly processing is requested
-if args.hourly or args.hourly_long:
+if args.hourly or args.hourly_long or args.survival:
     source_data = source_data.filter(
         pl.col("ICU Length of Stay (days)") > (1 / 3)  # at least 8 hours
     )
@@ -46,7 +51,7 @@ data = source_data.select(
     "Global ICU Stay ID",
     *(
         ["Time Relative to Admission (seconds)"]
-        if args.hourly or args.hourly_long
+        if args.hourly or args.hourly_long or args.survival
         else []
     ),
     "Mortality in ICU",
@@ -102,8 +107,62 @@ vital_signs = [
     pl.col("Respiratory rate").mean().round(1).alias("RR"),
 ]
 
+# Handle survival analysis format if requested
+if args.survival:
+    agg_list = patient_characteristics.copy()
+    agg_list.extend(vital_signs)
+    agg_list.append(pl.col("Urine output").sum().alias("Urine output (ml)"))
+
+    # Create survival format data
+    data = (
+        data
+        .with_columns(
+            pl.col("Time Relative to Admission (seconds)")
+            .floordiv(SECONDS_IN_HOUR)
+            .alias("Hour Relative to Admission"),
+        )
+        .group_by("Global ICU Stay ID", "Hour Relative to Admission")
+        .agg(agg_list)
+        .join(
+            source_data.group_by("Global ICU Stay ID").agg(
+                pl.col("ICU Length of Stay (days)").max().alias("ICU_LOS_days"),
+                pl.col("Mortality in ICU").first().alias("Final_Mortality"),
+            ),
+            on="Global ICU Stay ID",
+            how="left",
+        )
+        .with_columns(
+            pl.col("Hour Relative to Admission").alias("time_start"),
+            pl.when(pl.col("Hour Relative to Admission") == 23)
+            .then((pl.col("ICU_LOS_days") * 24))
+            .otherwise(pl.col("Hour Relative to Admission") + 1)
+            .alias("time_stop"),
+            pl.when(
+                pl.col("Hour Relative to Admission") == 23,
+            )
+            .then(pl.col("Final_Mortality"))
+            .otherwise(pl.lit(False))
+            .alias("Mortality in ICU"),
+        )
+        .drop("ICU_LOS_days", "Final_Mortality", "Hour Relative to Admission")
+        .sort("Global ICU Stay ID", "time_start")
+        .with_columns(
+            pl.col(
+                "Pre-ICU LOS (days)",
+                "Age (years)",
+                "Admission Type",
+                "Admission Urgency",
+                "MechVent",
+            )
+            .forward_fill()
+            .over("Global ICU Stay ID"),
+        )
+    )
+
+    print(f"Survival format data shape: {data.shape}")
+
 # Handle hourly aggregations in long format if requested
-if args.hourly_long:
+elif args.hourly_long:
     agg_list = patient_characteristics.copy()
     agg_list.extend(vital_signs)
     agg_list.append(pl.col("Urine output").sum().alias("Urine output (ml)"))
