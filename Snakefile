@@ -3,9 +3,9 @@ import os
 configfile: "config.yaml"
 
 # Define LLM models and number of shots
-LLM_MODEL_IDS = ["llama_3.2_3b"] # , "llama_3.1_8b"]
+LLM_MODEL_IDS = ["qwen_3_8b"] # , "qwen_3_8b_think"] #, "medgemma_3_4b"]
 # NUM_SHOT_VALUES will be [0, 1, 2, 4, 8, 16, 32, 64, 128, 256] (2^0 to 2^8)
-NUM_SHOT_VALUES = [0] + [2**i for i in range(4)]
+NUM_SHOT_VALUES = [0] + [2**i for i in range(5)]
 NUM_SHOT_VALUES_TABPFN = [2**i for i in range(9)]
 NUM_SHOT_VALUES_TABPFN_TS = [2**i for i in range(5)]
 
@@ -14,6 +14,7 @@ rule all:
         processed_data="output_data/processed_data.parquet",
         processed_data_hourly="output_data/processed_data_hourly.parquet",
         processed_data_stats="output_data/processed_data_stats.parquet",
+        processed_data_minmax="output_data/processed_data_minmax.parquet",
         processed_data_hourly_stats="output_data/processed_data_hourly_stats.parquet",
         processed_data_hourly_long="output_data/processed_data_hourly_long.parquet",
         processed_data_survival="output_data/processed_data_survival.parquet",
@@ -23,11 +24,14 @@ rule all:
         log_hourly_plot="output_plots/baseline_logistic_hourly_roc_curve.png",
         log_stats_summary="output_data/baseline_logistic_stats_summary.txt",
         log_stats_plot="output_plots/baseline_logistic_stats_roc_curve.png",
+        log_minmax_summary="output_data/baseline_logistic_minmax_summary.txt",
+        log_minmax_plot="output_plots/baseline_logistic_minmax_roc_curve.png",
         log_hourly_stats_summary="output_data/baseline_logistic_hourly_stats_summary.txt",
         log_hourly_stats_plot="output_plots/baseline_logistic_hourly_stats_roc_curve.png",
         xgboost_plot="output_plots/baseline_xgboost_roc_curve.png",
         xgboost_hourly_plot="output_plots/baseline_xgboost_hourly_roc_curve.png",
         xgboost_stats_plot="output_plots/baseline_xgboost_stats_roc_curve.png",
+        xgboost_minmax_plot="output_plots/baseline_xgboost_minmax_roc_curve.png",
         xgboost_hourly_stats_plot="output_plots/baseline_xgboost_hourly_stats_roc_curve.png",
         oasis_plot="output_plots/baseline_oasis_roc_curve.png",
         tabpfn_plot="output_plots/tabpfn_roc_curve.png",
@@ -118,6 +122,16 @@ rule process_data_stats:
         # Use shell() function with f-string
         shell(f"python {input.script} --input '{input.raw_data}' --output '{output.processed_data_stats}' --stats")
 
+rule process_data_minmax:
+    input:
+        script="code/1_process_data.py",
+        raw_data=config["inputdata_path"] + "data.parquet"
+    output:
+        processed_data_minmax="output_data/processed_data_minmax.parquet"
+    threads: 1
+    run:
+        shell(f"python {input.script} --input '{input.raw_data}' --output '{output.processed_data_minmax}' --minmax")
+
 rule process_data_hourly_stats:
     input:
         script="code/1_process_data.py",
@@ -192,6 +206,19 @@ rule baseline_logistic_stats:
         plot_dir = os.path.dirname(output.plot)
         shell(f"python {input.script} --input '{input.data}' --output_dir '{output_dir}' --plot_dir '{plot_dir}'")
 
+rule baseline_logistic_minmax:
+    input:
+        script="code/2_baseline_logistic.py",
+        data="output_data/processed_data_minmax.parquet"
+    output:
+        summary="output_data/baseline_logistic_minmax_summary.txt",
+        plot="output_plots/baseline_logistic_minmax_roc_curve.png"
+    threads: 1
+    run:
+        output_dir = os.path.dirname(output.summary)
+        plot_dir = os.path.dirname(output.plot)
+        shell(f"python {input.script} --input '{input.data}' --output_dir '{output_dir}' --plot_dir '{plot_dir}'")
+
 rule baseline_logistic_hourly_stats:
     input:
         script="code/2_baseline_logistic.py",
@@ -240,6 +267,19 @@ rule baseline_xgboost_stats:
     output:
         model="output_data/baseline_xgboost_stats_model.json",
         plot="output_plots/baseline_xgboost_stats_roc_curve.png"
+    threads: 1
+    run:
+        output_dir = os.path.dirname(output.model)
+        plot_dir = os.path.dirname(output.plot)
+        shell(f"python {input.script} --input '{input.data}' --output_dir '{output_dir}' --plot_dir '{plot_dir}'")
+
+rule baseline_xgboost_minmax:
+    input:
+        script="code/2_baseline_xgboost.py",
+        data="output_data/processed_data_minmax.parquet"
+    output:
+        model="output_data/baseline_xgboost_minmax_model.json",
+        plot="output_plots/baseline_xgboost_minmax_roc_curve.png"
     threads: 1
     run:
         output_dir = os.path.dirname(output.model)
@@ -303,12 +343,12 @@ rule baseline_tabpfn_stats:
         plot_dir = os.path.dirname(output.plot)
         shell(f"python {input.script} --input '{input.data}' --plot_dir '{plot_dir}'")
 
-rule baseline_tabpfn_hourly_stats:
+rule baseline_tabpfn_minmax:
     input:
         script="code/3_tabpfn.py",
-        data="output_data/processed_data_hourly_stats.parquet"
+        data="output_data/processed_data_minmax.parquet"
     output:
-        plot="output_plots/tabpfn_hourly_stats_roc_curve.png"
+        plot="output_plots/tabpfn_minmax_roc_curve.png"
     threads: 1
     run:
         plot_dir = os.path.dirname(output.plot)
@@ -490,6 +530,28 @@ rule evaluate_tabpfn_survival_with_shots:
             f"--survival"
         )
 
+rule evaluate_tabpfn_minmax_with_shots:
+    input:
+        script="code/5_evaluate_TabPFN.py",
+        processed_data="output_data/processed_data_minmax.parquet"
+    output:
+        results="output_data/tabpfn-minmax_{shots}-shot_results.csv",
+        plot="output_plots/tabpfn-minmax_{shots}-shot_roc_curve.png"
+    threads: 1
+    run:
+        shots_wc = wildcards.shots
+        output_dir = os.path.dirname(output.results)
+        plot_dir = os.path.dirname(output.plot)
+
+        shell(
+            f"python {input.script} "
+            f"--processed_data_path '{input.processed_data}' "
+            f"--output_dir '{output_dir}' "
+            f"--plot_dir '{plot_dir}' "
+            f"--num_shots {shots_wc} "
+            f"--minmax"
+        )
+
 rule aggregate_results:
     input:
         llm_results=expand(
@@ -507,6 +569,10 @@ rule aggregate_results:
         ),
         tabpfn_stats_results=expand(
             "output_data/tabpfn-stats_{shots}-shot_results.csv",
+            shots=NUM_SHOT_VALUES_TABPFN
+        ),
+        tabpfn_minmax_results=expand(
+            "output_data/tabpfn-minmax_{shots}-shot_results.csv",
             shots=NUM_SHOT_VALUES_TABPFN
         ),
         tabpfn_hourly_stats_results=expand(
@@ -531,8 +597,8 @@ rule aggregate_results:
         # Combine all input file paths into a single list
         all_input_files = (list(input.llm_results) + list(input.tabpfn_results) + 
                           list(input.tabpfn_hourly_results) + list(input.tabpfn_stats_results) + 
-                          list(input.tabpfn_hourly_stats_results) + list(input.tabpfn_timeseries_results) +
-                          list(input.tabpfn_survival_results))
+                          list(input.tabpfn_minmax_results) + list(input.tabpfn_hourly_stats_results) + 
+                          list(input.tabpfn_timeseries_results) + list(input.tabpfn_survival_results))
         
         dataframes_to_concat = []
 
@@ -552,6 +618,7 @@ rule tabpfn_all:
         processed_data="output_data/processed_data.parquet",
         processed_data_hourly="output_data/processed_data_hourly.parquet", 
         processed_data_stats="output_data/processed_data_stats.parquet",
+        processed_data_minmax="output_data/processed_data_minmax.parquet",
         processed_data_hourly_stats="output_data/processed_data_hourly_stats.parquet",
         processed_data_hourly_long="output_data/processed_data_hourly_long.parquet",
         tabpfn_plots=expand(
@@ -564,6 +631,10 @@ rule tabpfn_all:
         ),
         tabpfn_stats_plots=expand(
             "output_plots/tabpfn-stats_{shots}-shot_roc_curve.png",
+            shots=NUM_SHOT_VALUES_TABPFN
+        ),
+        tabpfn_minmax_plots=expand(
+            "output_plots/tabpfn-minmax_{shots}-shot_roc_curve.png",
             shots=NUM_SHOT_VALUES_TABPFN
         ),
         tabpfn_hourly_stats_plots=expand(
@@ -585,6 +656,7 @@ rule baselines_all:
         processed_data="output_data/processed_data.parquet",
         processed_data_hourly="output_data/processed_data_hourly.parquet",
         processed_data_stats="output_data/processed_data_stats.parquet",
+        processed_data_minmax="output_data/processed_data_minmax.parquet",
         processed_data_hourly_stats="output_data/processed_data_hourly_stats.parquet",
         # Logistic regression baselines
         log_summary="output_data/baseline_logistic_summary.txt",
@@ -593,17 +665,21 @@ rule baselines_all:
         log_hourly_plot="output_plots/baseline_logistic_hourly_roc_curve.png",
         log_stats_summary="output_data/baseline_logistic_stats_summary.txt",
         log_stats_plot="output_plots/baseline_logistic_stats_roc_curve.png",
+        log_minmax_summary="output_data/baseline_logistic_minmax_summary.txt",
+        log_minmax_plot="output_plots/baseline_logistic_minmax_roc_curve.png",
         log_hourly_stats_summary="output_data/baseline_logistic_hourly_stats_summary.txt",
         log_hourly_stats_plot="output_plots/baseline_logistic_hourly_stats_roc_curve.png",
         # XGBoost baselines
         xgboost_plot="output_plots/baseline_xgboost_roc_curve.png",
         xgboost_hourly_plot="output_plots/baseline_xgboost_hourly_roc_curve.png",
         xgboost_stats_plot="output_plots/baseline_xgboost_stats_roc_curve.png",
+        xgboost_minmax_plot="output_plots/baseline_xgboost_minmax_roc_curve.png",
         xgboost_hourly_stats_plot="output_plots/baseline_xgboost_hourly_stats_roc_curve.png",
         # TabPFN baselines
         tabpfn_plot="output_plots/tabpfn_roc_curve.png",
         tabpfn_hourly_plot="output_plots/tabpfn_hourly_roc_curve.png",
         tabpfn_stats_plot="output_plots/tabpfn_stats_roc_curve.png",
+        tabpfn_minmax_plot="output_plots/tabpfn_minmax_roc_curve.png",
         tabpfn_hourly_stats_plot="output_plots/tabpfn_hourly_stats_roc_curve.png",
         # OASIS baseline
         oasis_plot="output_plots/baseline_oasis_roc_curve.png"

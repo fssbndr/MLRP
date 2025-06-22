@@ -47,13 +47,19 @@ has_stats = any(
     "mean" in col or "std" in col or "min" in col or "max" in col
     for col in columns
 )
+has_minmax = any("min" in col or "max" in col for col in columns) and not any(
+    "mean" in col or "std" in col for col in columns
+)
 
 # Check if this is hourly+stats dataset by looking at the input filename
 is_hourly_stats_file = "hourly_stats" in args.input
+is_minmax_file = "minmax" in args.input
 
 # Determine suffix for output files based on dataset type
 if is_hourly_stats_file or (has_hourly and has_stats):
     suffix = "_hourly_stats"
+elif is_minmax_file or has_minmax:
+    suffix = "_minmax"
 elif has_hourly:
     suffix = "_hourly"
 elif has_stats:
@@ -86,6 +92,11 @@ if has_stats:
         col
         for col in columns
         if any(stat in col for stat in ["mean", "std", "min", "max"])
+    ]
+elif has_minmax:
+    # Minmax dataset - use only min/max aggregations
+    vital_features = [
+        col for col in columns if any(stat in col for stat in ["min", "max"])
     ]
 elif has_hourly:
     # Hourly dataset - use all hourly columns

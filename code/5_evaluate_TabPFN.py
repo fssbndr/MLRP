@@ -63,6 +63,11 @@ parser.add_argument(
     action="store_true",
     help="Use comprehensive statistics aggregated data (changes model name suffix for output files).",
 )
+parser.add_argument(
+    "--minmax",
+    action="store_true",
+    help="Use min/max statistics aggregated data (changes model name suffix for output files).",
+)
 args = parser.parse_args()
 
 # Define output file paths
@@ -71,6 +76,8 @@ if args.hourly:
     model_suffix += "-hourly"
 if args.stats:
     model_suffix += "-stats"
+if args.minmax:
+    model_suffix += "-minmax"
 model_name = f"tabpfn{model_suffix}"
 output_csv_path = os.path.join(
     args.output_dir, f"{model_name}_{args.num_shots}-shot_results.csv"
@@ -256,7 +263,12 @@ fpr, tpr, thresholds = roc_curve(actual_labels, predicted_probabilities)
 roc_auc_val = auc(fpr, tpr)
 
 plt.figure()
-plt.plot(fpr, tpr, lw=2, label=f"ROC curve (AUC = {roc_auc_val:.2f} [{auc_stats['auc_ci_lower']:.2f}-{auc_stats['auc_ci_upper']:.2f}])")
+plt.plot(
+    fpr,
+    tpr,
+    lw=2,
+    label=f"ROC curve (AUC = {roc_auc_val:.2f} [{auc_stats['auc_ci_lower']:.2f}-{auc_stats['auc_ci_upper']:.2f}])",
+)
 plt.plot([0, 1], [0, 1], color="black", lw=2, linestyle="--")
 plt.xlim([0.0, 1.0])
 plt.ylim([0.0, 1.05])

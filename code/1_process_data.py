@@ -24,6 +24,11 @@ parser.add_argument(
     help="Include mean, stdev, min, max aggregations of vital signs instead of just max.",
 )
 parser.add_argument(
+    "--minmax",
+    action="store_true",
+    help="Include only min, max aggregations of vital signs instead of just max.",
+)
+parser.add_argument(
     "--hourly-long",
     action="store_true",
     help="Include hourly aggregations in long format (one row per patient per hour).",
@@ -46,6 +51,12 @@ if args.hourly or args.hourly_long or args.survival:
     source_data = source_data.filter(
         pl.col("ICU Length of Stay (days)") > (1 / 3)  # at least 8 hours
     )
+
+# Validate argument combinations
+if args.hourly and args.minmax:
+    raise ValueError("Cannot combine --hourly and --minmax options")
+if args.stats and args.minmax:
+    raise ValueError("Cannot combine --stats and --minmax options")
 
 data = source_data.select(
     "Global ICU Stay ID",
@@ -115,8 +126,7 @@ if args.survival:
 
     # Create survival format data
     data = (
-        data
-        .with_columns(
+        data.with_columns(
             pl.col("Time Relative to Admission (seconds)")
             .floordiv(SECONDS_IN_HOUR)
             .alias("Hour Relative to Admission"),
@@ -266,6 +276,15 @@ else:
                 [
                     pl.col(col_name).mean().alias(f"{alias} mean"),
                     pl.col(col_name).std().alias(f"{alias} std"),
+                    pl.col(col_name).min().alias(f"{alias} min"),
+                    pl.col(col_name).max().alias(f"{alias} max"),
+                ]
+            )
+    elif args.minmax:
+        # Add only min and max aggregations for each vital sign
+        for col_name, alias in vital_signs_tuples:
+            agg_list.extend(
+                [
                     pl.col(col_name).min().alias(f"{alias} min"),
                     pl.col(col_name).max().alias(f"{alias} max"),
                 ]
