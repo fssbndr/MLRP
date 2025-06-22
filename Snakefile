@@ -19,7 +19,16 @@ rule all:
         processed_data_survival="output_data/processed_data_survival.parquet",
         log_summary="output_data/baseline_logistic_summary.txt",
         log_plot="output_plots/baseline_logistic_roc_curve.png",
+        log_hourly_summary="output_data/baseline_logistic_hourly_summary.txt",
+        log_hourly_plot="output_plots/baseline_logistic_hourly_roc_curve.png",
+        log_stats_summary="output_data/baseline_logistic_stats_summary.txt",
+        log_stats_plot="output_plots/baseline_logistic_stats_roc_curve.png",
+        log_hourly_stats_summary="output_data/baseline_logistic_hourly_stats_summary.txt",
+        log_hourly_stats_plot="output_plots/baseline_logistic_hourly_stats_roc_curve.png",
         xgboost_plot="output_plots/baseline_xgboost_roc_curve.png",
+        xgboost_hourly_plot="output_plots/baseline_xgboost_hourly_roc_curve.png",
+        xgboost_stats_plot="output_plots/baseline_xgboost_stats_roc_curve.png",
+        xgboost_hourly_stats_plot="output_plots/baseline_xgboost_hourly_stats_roc_curve.png",
         oasis_plot="output_plots/baseline_oasis_roc_curve.png",
         tabpfn_plot="output_plots/tabpfn_roc_curve.png",
         serialized_data_train="output_data/serialized_data.txt",
@@ -157,6 +166,45 @@ rule baseline_logistic:
         # Use shell() function with f-string
         shell(f"python {input.script} --input '{input.data}' --output_dir '{output_dir}' --plot_dir '{plot_dir}'")
 
+rule baseline_logistic_hourly:
+    input:
+        script="code/2_baseline_logistic.py",
+        data="output_data/processed_data_hourly.parquet"
+    output:
+        summary="output_data/baseline_logistic_hourly_summary.txt",
+        plot="output_plots/baseline_logistic_hourly_roc_curve.png"
+    threads: 1
+    run:
+        output_dir = os.path.dirname(output.summary)
+        plot_dir = os.path.dirname(output.plot)
+        shell(f"python {input.script} --input '{input.data}' --output_dir '{output_dir}' --plot_dir '{plot_dir}'")
+
+rule baseline_logistic_stats:
+    input:
+        script="code/2_baseline_logistic.py",
+        data="output_data/processed_data_stats.parquet"
+    output:
+        summary="output_data/baseline_logistic_stats_summary.txt",
+        plot="output_plots/baseline_logistic_stats_roc_curve.png"
+    threads: 1
+    run:
+        output_dir = os.path.dirname(output.summary)
+        plot_dir = os.path.dirname(output.plot)
+        shell(f"python {input.script} --input '{input.data}' --output_dir '{output_dir}' --plot_dir '{plot_dir}'")
+
+rule baseline_logistic_hourly_stats:
+    input:
+        script="code/2_baseline_logistic.py",
+        data="output_data/processed_data_hourly_stats.parquet"
+    output:
+        summary="output_data/baseline_logistic_hourly_stats_summary.txt",
+        plot="output_plots/baseline_logistic_hourly_stats_roc_curve.png"
+    threads: 1
+    run:
+        output_dir = os.path.dirname(output.summary)
+        plot_dir = os.path.dirname(output.plot)
+        shell(f"python {input.script} --input '{input.data}' --output_dir '{output_dir}' --plot_dir '{plot_dir}'")
+
 rule baseline_xgboost:
     input:
         script="code/2_baseline_xgboost.py",
@@ -172,6 +220,45 @@ rule baseline_xgboost:
         # Use shell() function with f-string
         shell(f"python {input.script} --input '{input.data}' --output_dir '{output_dir}' --plot_dir '{plot_dir}'")
 
+rule baseline_xgboost_hourly:
+    input:
+        script="code/2_baseline_xgboost.py",
+        data="output_data/processed_data_hourly.parquet"
+    output:
+        model="output_data/baseline_xgboost_hourly_model.json",
+        plot="output_plots/baseline_xgboost_hourly_roc_curve.png"
+    threads: 1
+    run:
+        output_dir = os.path.dirname(output.model)
+        plot_dir = os.path.dirname(output.plot)
+        shell(f"python {input.script} --input '{input.data}' --output_dir '{output_dir}' --plot_dir '{plot_dir}'")
+
+rule baseline_xgboost_stats:
+    input:
+        script="code/2_baseline_xgboost.py",
+        data="output_data/processed_data_stats.parquet"
+    output:
+        model="output_data/baseline_xgboost_stats_model.json",
+        plot="output_plots/baseline_xgboost_stats_roc_curve.png"
+    threads: 1
+    run:
+        output_dir = os.path.dirname(output.model)
+        plot_dir = os.path.dirname(output.plot)
+        shell(f"python {input.script} --input '{input.data}' --output_dir '{output_dir}' --plot_dir '{plot_dir}'")
+
+rule baseline_xgboost_hourly_stats:
+    input:
+        script="code/2_baseline_xgboost.py",
+        data="output_data/processed_data_hourly_stats.parquet"
+    output:
+        model="output_data/baseline_xgboost_hourly_stats_model.json",
+        plot="output_plots/baseline_xgboost_hourly_stats_roc_curve.png"
+    threads: 1
+    run:
+        output_dir = os.path.dirname(output.model)
+        plot_dir = os.path.dirname(output.plot)
+        shell(f"python {input.script} --input '{input.data}' --output_dir '{output_dir}' --plot_dir '{plot_dir}'")
+
 rule baseline_oasis:
     input:
         script="code/2_baseline_oasis.py",
@@ -180,9 +267,51 @@ rule baseline_oasis:
         plot="output_plots/baseline_oasis_roc_curve.png"
     threads: 1
     run:
-        # Calculate directory within the run block
         plot_dir = os.path.dirname(output.plot)
-        # Use shell() function with f-string
+        shell(f"python {input.script} --input '{input.data}' --plot_dir '{plot_dir}'")
+
+rule baseline_tabpfn:
+    input:
+        script="code/3_tabpfn.py",
+        data="output_data/processed_data.parquet"
+    output:
+        plot="output_plots/tabpfn_roc_curve.png"
+    threads: 1
+    run:
+        plot_dir = os.path.dirname(output.plot)
+        shell(f"python {input.script} --input '{input.data}' --plot_dir '{plot_dir}'")
+
+rule baseline_tabpfn_hourly:
+    input:
+        script="code/3_tabpfn.py",
+        data="output_data/processed_data_hourly.parquet"
+    output:
+        plot="output_plots/tabpfn_hourly_roc_curve.png"
+    threads: 1
+    run:
+        plot_dir = os.path.dirname(output.plot)
+        shell(f"python {input.script} --input '{input.data}' --plot_dir '{plot_dir}'")
+
+rule baseline_tabpfn_stats:
+    input:
+        script="code/3_tabpfn.py",
+        data="output_data/processed_data_stats.parquet"
+    output:
+        plot="output_plots/tabpfn_stats_roc_curve.png"
+    threads: 1
+    run:
+        plot_dir = os.path.dirname(output.plot)
+        shell(f"python {input.script} --input '{input.data}' --plot_dir '{plot_dir}'")
+
+rule baseline_tabpfn_hourly_stats:
+    input:
+        script="code/3_tabpfn.py",
+        data="output_data/processed_data_hourly_stats.parquet"
+    output:
+        plot="output_plots/tabpfn_hourly_stats_roc_curve.png"
+    threads: 1
+    run:
+        plot_dir = os.path.dirname(output.plot)
         shell(f"python {input.script} --input '{input.data}' --plot_dir '{plot_dir}'")
 
 rule serialize_data:
@@ -450,3 +579,31 @@ rule tabpfn_all:
             shots=NUM_SHOT_VALUES_TABPFN_TS
         )
 
+rule baselines_all:
+    input:
+        # Data processing
+        processed_data="output_data/processed_data.parquet",
+        processed_data_hourly="output_data/processed_data_hourly.parquet",
+        processed_data_stats="output_data/processed_data_stats.parquet",
+        processed_data_hourly_stats="output_data/processed_data_hourly_stats.parquet",
+        # Logistic regression baselines
+        log_summary="output_data/baseline_logistic_summary.txt",
+        log_plot="output_plots/baseline_logistic_roc_curve.png",
+        log_hourly_summary="output_data/baseline_logistic_hourly_summary.txt",
+        log_hourly_plot="output_plots/baseline_logistic_hourly_roc_curve.png",
+        log_stats_summary="output_data/baseline_logistic_stats_summary.txt",
+        log_stats_plot="output_plots/baseline_logistic_stats_roc_curve.png",
+        log_hourly_stats_summary="output_data/baseline_logistic_hourly_stats_summary.txt",
+        log_hourly_stats_plot="output_plots/baseline_logistic_hourly_stats_roc_curve.png",
+        # XGBoost baselines
+        xgboost_plot="output_plots/baseline_xgboost_roc_curve.png",
+        xgboost_hourly_plot="output_plots/baseline_xgboost_hourly_roc_curve.png",
+        xgboost_stats_plot="output_plots/baseline_xgboost_stats_roc_curve.png",
+        xgboost_hourly_stats_plot="output_plots/baseline_xgboost_hourly_stats_roc_curve.png",
+        # TabPFN baselines
+        tabpfn_plot="output_plots/tabpfn_roc_curve.png",
+        tabpfn_hourly_plot="output_plots/tabpfn_hourly_roc_curve.png",
+        tabpfn_stats_plot="output_plots/tabpfn_stats_roc_curve.png",
+        tabpfn_hourly_stats_plot="output_plots/tabpfn_hourly_stats_roc_curve.png",
+        # OASIS baseline
+        oasis_plot="output_plots/baseline_oasis_roc_curve.png"

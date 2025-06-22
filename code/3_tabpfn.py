@@ -25,9 +25,6 @@ parser.add_argument(
 )
 args = parser.parse_args()
 
-# Define output file paths
-plot_output_path = os.path.join(args.plot_dir, "tabpfn_roc_curve.png")
-
 # Ensure output directories exist
 os.makedirs(args.plot_dir, exist_ok=True)
 
@@ -38,20 +35,63 @@ data = pl.read_parquet(args.input)
 # filter out rows where the outcome variable is null
 data = data.filter(pl.col("Mortality in ICU").is_not_null())
 
-# Prepare features and target
-X_all_df = data.select(
+# Detect dataset type based on column names
+columns = data.columns
+has_hourly = any("Hour" in col for col in columns)
+has_stats = any(
+    "mean" in col or "std" in col or "min" in col or "max" in col
+    for col in columns
+)
+
+# Check if this is hourly+stats dataset by looking at the input filename
+is_hourly_stats_file = "hourly_stats" in args.input
+
+# Determine suffix for output files based on dataset type
+if is_hourly_stats_file or (has_hourly and has_stats):
+    suffix = "_hourly_stats"
+elif has_hourly:
+    suffix = "_hourly"
+elif has_stats:
+    suffix = "_stats"
+else:
+    suffix = ""
+
+# Define output file paths with dynamic naming
+plot_output_path = os.path.join(args.plot_dir, f"tabpfn{suffix}_roc_curve.png")
+
+print(
+    f"Dataset type detection: has_hourly={has_hourly}, has_stats={has_stats}, suffix='{suffix}'"
+)
+print(f"Plot output path: {plot_output_path}")
+
+# Prepare features based on dataset type
+base_features = [
     "Pre-ICU LOS (days)",
     "Age (years)",
-    "GCS",
-    "HR",
-    "MAP",
     "Urine output (ml)",
-    "RR",
-    "Temp (C)",
     "Admission Type",
     "Admission Urgency",
     "MechVent",
-)
+]
+
+if has_stats:
+    # Stats dataset - use all statistical aggregations
+    vital_features = [
+        col
+        for col in columns
+        if any(stat in col for stat in ["mean", "std", "min", "max"])
+    ]
+elif has_hourly:
+    # Hourly dataset - use all hourly columns
+    vital_features = [col for col in columns if "Hour" in col]
+else:
+    # Regular dataset
+    vital_features = ["GCS", "HR", "MAP", "RR", "Temp (C)"]
+
+feature_columns = base_features + vital_features
+
+# Prepare features and target
+X_all_df = data.select([col for col in feature_columns if col in columns])
 y_all_np = data.select("Mortality in ICU").to_numpy().flatten()
 
 # Fill null values
@@ -59,9 +99,17 @@ X_all_df = X_all_df.fill_null(0)
 
 # Convert categorical columns to dummy variables
 categorical_cols = ["Admission Type", "Admission Urgency"]
-X_all_df_dummies = X_all_df.to_dummies(
-    columns=categorical_cols, drop_first=True
-)
+# Only apply dummy encoding if categorical columns exist in the feature set
+existing_categorical_cols = [
+    col for col in categorical_cols if col in X_all_df.columns
+]
+
+if existing_categorical_cols:
+    X_all_df_dummies = X_all_df.to_dummies(
+        columns=existing_categorical_cols, drop_first=True
+    )
+else:
+    X_all_df_dummies = X_all_df
 
 # Get train/test masks from the 'split_80_20' column
 train_mask = (data["split_80_20"] == "train").to_numpy()
@@ -113,3 +161,4 @@ plt.legend(loc="lower right")
 # Save the plot
 plt.savefig(plot_output_path)
 plt.close()
+print(f"Plot saved to: {plot_output_path}")

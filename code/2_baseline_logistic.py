@@ -29,14 +29,6 @@ parser.add_argument(
 )
 args = parser.parse_args()
 
-# Define output file paths
-summary_output_path = os.path.join(
-    args.output_dir, "baseline_logistic_summary.txt"
-)
-plot_output_path = os.path.join(
-    args.plot_dir, "baseline_logistic_roc_curve.png"
-)
-
 # Ensure output directories exist
 os.makedirs(args.output_dir, exist_ok=True)
 os.makedirs(args.plot_dir, exist_ok=True)
@@ -48,24 +40,81 @@ data = pl.read_parquet(args.input)
 # filter out rows where the outcome variable is null
 data = data.filter(pl.col("Mortality in ICU").is_not_null())
 
-# Prepare features and target
-X_all_df = data.select(
+# Detect dataset type based on column names
+columns = data.columns
+has_hourly = any("Hour" in col for col in columns)
+has_stats = any(
+    "mean" in col or "std" in col or "min" in col or "max" in col
+    for col in columns
+)
+
+# Check if this is hourly+stats dataset by looking at the input filename
+is_hourly_stats_file = "hourly_stats" in args.input
+
+# Determine suffix for output files based on dataset type
+if is_hourly_stats_file or (has_hourly and has_stats):
+    suffix = "_hourly_stats"
+elif has_hourly:
+    suffix = "_hourly"
+elif has_stats:
+    suffix = "_stats"
+else:
+    suffix = ""
+
+# Define output file paths with dynamic naming
+summary_output_path = os.path.join(
+    args.output_dir, f"baseline_logistic{suffix}_summary.txt"
+)
+plot_output_path = os.path.join(
+    args.plot_dir, f"baseline_logistic{suffix}_roc_curve.png"
+)
+
+# ------------------------------------------------------------------------------
+# Prepare features based on dataset type
+base_features = [
     "Pre-ICU LOS (days)",
     "Age (years)",
-    "GCS",
-    "HR",
-    "MAP",
     "Urine output (ml)",
-    "RR",
-    "Temp (C)",
     "Admission Type",
     "Admission Urgency",
     "MechVent",
-)
+]
+
+if has_stats:
+    # Stats dataset - use all statistical aggregations
+    vital_features = [
+        col
+        for col in columns
+        if any(stat in col for stat in ["mean", "std", "min", "max"])
+    ]
+elif has_hourly:
+    # Hourly dataset - use all hourly columns
+    vital_features = [col for col in columns if "Hour" in col]
+else:
+    # Regular dataset
+    vital_features = ["GCS", "HR", "MAP", "RR", "Temp (C)"]
+
+feature_columns = base_features + vital_features
+
+# Prepare features and target
+X_all_df = data.select([col for col in feature_columns if col in columns])
 y_all_np = data.select("Mortality in ICU").to_numpy().flatten()
 
 # Fill null values
 categorical_cols = ["Admission Type", "Admission Urgency", "MechVent"]
+
+# First, get all unique categorical values from the entire dataset to ensure consistency
+all_categorical_values = {}
+for col in categorical_cols:
+    unique_vals = data.select(col).unique().to_numpy().flatten()
+    # Remove None/null values and convert to strings
+    unique_vals = [
+        str(val)
+        for val in unique_vals
+        if val is not None and str(val) != "None"
+    ]
+    all_categorical_values[col] = unique_vals
+
 X_all_df = X_all_df.with_columns(
     pl.when(pl.col(col).is_null())
     .then(pl.lit("Unknown"))
@@ -87,7 +136,6 @@ X_test = X_all_df.filter(pl.Series(test_mask))
 y_train_np = y_all_np[train_mask]
 y_test_np = y_all_np[test_mask]
 
-################################################################################
 # Prepare data for statsmodels.formula.api
 feature_names = X_train.columns
 target_name = "_target_"
@@ -97,6 +145,17 @@ X_train = X_train.with_columns(pl.Series(target_name, y_train_np).cast(int))
 # Convert Polars DataFrames to Pandas DataFrames for statsmodels.formula.api
 X_train_pd = X_train.to_pandas()
 X_test_pd = X_test.to_pandas()
+
+# Ensure categorical columns in test set only have levels seen in training set
+for col in categorical_cols:
+    train_levels = set(X_train_pd[col].unique())
+    # Map any unseen levels in test set to 'Unknown'
+    X_test_pd[col] = X_test_pd[col].apply(
+        lambda x: x if x in train_levels else "Unknown"
+    )
+    # Ensure both train and test have the same categorical type
+    X_train_pd[col] = X_train_pd[col].astype("category")
+    X_test_pd[col] = X_test_pd[col].astype("category")
 
 # Construct the formula string using Q() for quoting column names
 formula_features_str = " + ".join(
