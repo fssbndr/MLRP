@@ -269,9 +269,9 @@ else:
         ("Respiratory rate", "RR"),
     ]
 
-    if args.stats:
+    for col_name, alias in vital_signs_tuples:
         # Add comprehensive statistics for each vital sign
-        for col_name, alias in vital_signs_tuples:
+        if args.stats:
             agg_list.extend(
                 [
                     pl.col(col_name).mean().alias(f"{alias} mean"),
@@ -280,23 +280,19 @@ else:
                     pl.col(col_name).max().alias(f"{alias} max"),
                 ]
             )
-    elif args.minmax:
+
         # Add only min and max aggregations for each vital sign
-        for col_name, alias in vital_signs_tuples:
+        elif args.minmax:
             agg_list.extend(
                 [
                     pl.col(col_name).min().alias(f"{alias} min"),
                     pl.col(col_name).max().alias(f"{alias} max"),
                 ]
             )
-    else:
-        # Add simple max aggregation for vital signs
-        agg_list.extend(
-            [
-                pl.col(col_name).max().alias(alias)
-                for col_name, alias in vital_signs_tuples
-            ]
-        )
+
+        else:
+            # Add simple max aggregation for vital signs
+            agg_list.extend([pl.col(col_name).max().alias(alias)])
 
     # Add urine output aggregation
     agg_list.append(pl.col("Urine output").sum().alias("Urine output (ml)"))
