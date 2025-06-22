@@ -13,6 +13,7 @@ rule all:
     input:
         processed_data="output_data/processed_data.parquet",
         processed_data_hourly="output_data/processed_data_hourly.parquet",
+        processed_data_forward_fill="output_data/processed_data_forward_fill.parquet",
         processed_data_stats="output_data/processed_data_stats.parquet",
         processed_data_minmax="output_data/processed_data_minmax.parquet",
         processed_data_hourly_stats="output_data/processed_data_hourly_stats.parquet",
@@ -22,6 +23,8 @@ rule all:
         log_plot="output_plots/baseline_logistic_roc_curve.png",
         log_hourly_summary="output_data/baseline_logistic_hourly_summary.txt",
         log_hourly_plot="output_plots/baseline_logistic_hourly_roc_curve.png",
+        log_forward_fill_summary="output_data/baseline_logistic_forward_fill_summary.txt",
+        log_forward_fill_plot="output_plots/baseline_logistic_forward_fill_roc_curve.png",
         log_stats_summary="output_data/baseline_logistic_stats_summary.txt",
         log_stats_plot="output_plots/baseline_logistic_stats_roc_curve.png",
         log_minmax_summary="output_data/baseline_logistic_minmax_summary.txt",
@@ -30,6 +33,7 @@ rule all:
         log_hourly_stats_plot="output_plots/baseline_logistic_hourly_stats_roc_curve.png",
         xgboost_plot="output_plots/baseline_xgboost_roc_curve.png",
         xgboost_hourly_plot="output_plots/baseline_xgboost_hourly_roc_curve.png",
+        xgboost_forward_fill_plot="output_plots/baseline_xgboost_forward_fill_roc_curve.png",
         xgboost_stats_plot="output_plots/baseline_xgboost_stats_roc_curve.png",
         xgboost_minmax_plot="output_plots/baseline_xgboost_minmax_roc_curve.png",
         xgboost_hourly_stats_plot="output_plots/baseline_xgboost_hourly_stats_roc_curve.png",
@@ -110,6 +114,16 @@ rule process_data_hourly:
     run:
         # Use shell() function with f-string
         shell(f"python {input.script} --input '{input.raw_data}' --output '{output.processed_data_hourly}' --hourly")
+
+rule process_data_forward_fill:
+    input:
+        script="code/1_process_data.py",
+        raw_data=config["inputdata_path"] + "data.parquet"
+    output:
+        processed_data_forward_fill="output_data/processed_data_forward_fill.parquet"
+    threads: 1
+    run:
+        shell(f"python {input.script} --input '{input.raw_data}' --output '{output.processed_data_forward_fill}' --hourly --forward-fill")
 
 rule process_data_stats:
     input:
@@ -193,6 +207,19 @@ rule baseline_logistic_hourly:
         plot_dir = os.path.dirname(output.plot)
         shell(f"python {input.script} --input '{input.data}' --output_dir '{output_dir}' --plot_dir '{plot_dir}'")
 
+rule baseline_logistic_forward_fill:
+    input:
+        script="code/2_baseline_logistic.py",
+        data="output_data/processed_data_forward_fill.parquet"
+    output:
+        summary="output_data/baseline_logistic_forward_fill_summary.txt",
+        plot="output_plots/baseline_logistic_forward_fill_roc_curve.png"
+    threads: 1
+    run:
+        output_dir = os.path.dirname(output.summary)
+        plot_dir = os.path.dirname(output.plot)
+        shell(f"python {input.script} --input '{input.data}' --output_dir '{output_dir}' --plot_dir '{plot_dir}'")
+
 rule baseline_logistic_stats:
     input:
         script="code/2_baseline_logistic.py",
@@ -254,6 +281,19 @@ rule baseline_xgboost_hourly:
     output:
         model="output_data/baseline_xgboost_hourly_model.json",
         plot="output_plots/baseline_xgboost_hourly_roc_curve.png"
+    threads: 1
+    run:
+        output_dir = os.path.dirname(output.model)
+        plot_dir = os.path.dirname(output.plot)
+        shell(f"python {input.script} --input '{input.data}' --output_dir '{output_dir}' --plot_dir '{plot_dir}'")
+
+rule baseline_xgboost_forward_fill:
+    input:
+        script="code/2_baseline_xgboost.py",
+        data="output_data/processed_data_forward_fill.parquet"
+    output:
+        model="output_data/baseline_xgboost_forward_fill_model.json",
+        plot="output_plots/baseline_xgboost_forward_fill_roc_curve.png"
     threads: 1
     run:
         output_dir = os.path.dirname(output.model)
@@ -327,6 +367,17 @@ rule baseline_tabpfn_hourly:
         data="output_data/processed_data_hourly.parquet"
     output:
         plot="output_plots/tabpfn_hourly_roc_curve.png"
+    threads: 1
+    run:
+        plot_dir = os.path.dirname(output.plot)
+        shell(f"python {input.script} --input '{input.data}' --plot_dir '{plot_dir}'")
+
+rule baseline_tabpfn_forward_fill:
+    input:
+        script="code/3_tabpfn.py",
+        data="output_data/processed_data_forward_fill.parquet"
+    output:
+        plot="output_plots/tabpfn_forward_fill_roc_curve.png"
     threads: 1
     run:
         plot_dir = os.path.dirname(output.plot)
@@ -567,6 +618,10 @@ rule aggregate_results:
             "output_data/tabpfn-hourly_{shots}-shot_results.csv",
             shots=NUM_SHOT_VALUES_TABPFN
         ),
+        tabpfn_forward_fill_results=expand(
+            "output_data/tabpfn-forward-fill_{shots}-shot_results.csv",
+            shots=NUM_SHOT_VALUES_TABPFN
+        ),
         tabpfn_stats_results=expand(
             "output_data/tabpfn-stats_{shots}-shot_results.csv",
             shots=NUM_SHOT_VALUES_TABPFN
@@ -596,9 +651,10 @@ rule aggregate_results:
 
         # Combine all input file paths into a single list
         all_input_files = (list(input.llm_results) + list(input.tabpfn_results) + 
-                          list(input.tabpfn_hourly_results) + list(input.tabpfn_stats_results) + 
-                          list(input.tabpfn_minmax_results) + list(input.tabpfn_hourly_stats_results) + 
-                          list(input.tabpfn_timeseries_results) + list(input.tabpfn_survival_results))
+                          list(input.tabpfn_hourly_results) + list(input.tabpfn_forward_fill_results) + 
+                          list(input.tabpfn_stats_results) + list(input.tabpfn_minmax_results) + 
+                          list(input.tabpfn_hourly_stats_results) + list(input.tabpfn_timeseries_results) + 
+                          list(input.tabpfn_survival_results))
         
         dataframes_to_concat = []
 
@@ -617,6 +673,7 @@ rule tabpfn_all:
     input:
         processed_data="output_data/processed_data.parquet",
         processed_data_hourly="output_data/processed_data_hourly.parquet", 
+        processed_data_forward_fill="output_data/processed_data_forward_fill.parquet",
         processed_data_stats="output_data/processed_data_stats.parquet",
         processed_data_minmax="output_data/processed_data_minmax.parquet",
         processed_data_hourly_stats="output_data/processed_data_hourly_stats.parquet",
@@ -627,6 +684,10 @@ rule tabpfn_all:
         ),
         tabpfn_hourly_plots=expand(
             "output_plots/tabpfn-hourly_{shots}-shot_roc_curve.png",
+            shots=NUM_SHOT_VALUES_TABPFN
+        ),
+        tabpfn_forward_fill_plots=expand(
+            "output_plots/tabpfn-forward-fill_{shots}-shot_roc_curve.png",
             shots=NUM_SHOT_VALUES_TABPFN
         ),
         tabpfn_stats_plots=expand(
@@ -655,6 +716,7 @@ rule baselines_all:
         # Data processing
         processed_data="output_data/processed_data.parquet",
         processed_data_hourly="output_data/processed_data_hourly.parquet",
+        processed_data_forward_fill="output_data/processed_data_forward_fill.parquet",
         processed_data_stats="output_data/processed_data_stats.parquet",
         processed_data_minmax="output_data/processed_data_minmax.parquet",
         processed_data_hourly_stats="output_data/processed_data_hourly_stats.parquet",
@@ -663,6 +725,8 @@ rule baselines_all:
         log_plot="output_plots/baseline_logistic_roc_curve.png",
         log_hourly_summary="output_data/baseline_logistic_hourly_summary.txt",
         log_hourly_plot="output_plots/baseline_logistic_hourly_roc_curve.png",
+        log_forward_fill_summary="output_data/baseline_logistic_forward_fill_summary.txt",
+        log_forward_fill_plot="output_plots/baseline_logistic_forward_fill_roc_curve.png",
         log_stats_summary="output_data/baseline_logistic_stats_summary.txt",
         log_stats_plot="output_plots/baseline_logistic_stats_roc_curve.png",
         log_minmax_summary="output_data/baseline_logistic_minmax_summary.txt",
@@ -672,12 +736,14 @@ rule baselines_all:
         # XGBoost baselines
         xgboost_plot="output_plots/baseline_xgboost_roc_curve.png",
         xgboost_hourly_plot="output_plots/baseline_xgboost_hourly_roc_curve.png",
+        xgboost_forward_fill_plot="output_plots/baseline_xgboost_forward_fill_roc_curve.png",
         xgboost_stats_plot="output_plots/baseline_xgboost_stats_roc_curve.png",
         xgboost_minmax_plot="output_plots/baseline_xgboost_minmax_roc_curve.png",
         xgboost_hourly_stats_plot="output_plots/baseline_xgboost_hourly_stats_roc_curve.png",
         # TabPFN baselines
         tabpfn_plot="output_plots/tabpfn_roc_curve.png",
         tabpfn_hourly_plot="output_plots/tabpfn_hourly_roc_curve.png",
+        tabpfn_forward_fill_plot="output_plots/tabpfn_forward_fill_roc_curve.png",
         tabpfn_stats_plot="output_plots/tabpfn_stats_roc_curve.png",
         tabpfn_minmax_plot="output_plots/tabpfn_minmax_roc_curve.png",
         tabpfn_hourly_stats_plot="output_plots/tabpfn_hourly_stats_roc_curve.png",

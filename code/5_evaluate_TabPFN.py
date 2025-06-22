@@ -68,11 +68,18 @@ parser.add_argument(
     action="store_true",
     help="Use min/max statistics aggregated data (changes model name suffix for output files).",
 )
+parser.add_argument(
+    "--forward-fill",
+    action="store_true",
+    help="Use forward-fill hourly data (changes model name suffix for output files).",
+)
 args = parser.parse_args()
 
 # Define output file paths
 model_suffix = ""
-if args.hourly:
+if args.forward_fill:
+    model_suffix += "-forward-fill"
+elif args.hourly:
     model_suffix += "-hourly"
 if args.stats:
     model_suffix += "-stats"

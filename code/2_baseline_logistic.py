@@ -3,10 +3,8 @@ import os
 
 import matplotlib.pyplot as plt
 import polars as pl
-import pandas as pd
 from sklearn.metrics import auc, roc_curve
 
-import statsmodels.api as sm
 import statsmodels.formula.api as smf
 from _utils import bootstrap_auc
 
@@ -54,10 +52,13 @@ has_minmax = any("min" in col or "max" in col for col in columns) and not any(
 # Check if this is hourly+stats dataset by looking at the input filename
 is_hourly_stats_file = "hourly_stats" in args.input
 is_minmax_file = "minmax" in args.input
+is_forward_fill_file = "forward_fill" in args.input
 
 # Determine suffix for output files based on dataset type
 if is_hourly_stats_file or (has_hourly and has_stats):
     suffix = "_hourly_stats"
+elif is_forward_fill_file:
+    suffix = "_forward_fill"
 elif is_minmax_file or has_minmax:
     suffix = "_minmax"
 elif has_hourly:

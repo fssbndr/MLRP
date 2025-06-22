@@ -29,6 +29,11 @@ parser.add_argument(
     help="Include only min, max aggregations of vital signs instead of just max.",
 )
 parser.add_argument(
+    "--forward-fill",
+    action="store_true",
+    help="Forward-fill missing values in hourly data (only works with --hourly).",
+)
+parser.add_argument(
     "--hourly-long",
     action="store_true",
     help="Include hourly aggregations in long format (one row per patient per hour).",
@@ -57,6 +62,8 @@ if args.hourly and args.minmax:
     raise ValueError("Cannot combine --hourly and --minmax options")
 if args.stats and args.minmax:
     raise ValueError("Cannot combine --stats and --minmax options")
+if args.forward_fill and not args.hourly:
+    raise ValueError("--forward-fill can only be used with --hourly option")
 
 data = source_data.select(
     "Global ICU Stay ID",
@@ -236,13 +243,27 @@ elif args.hourly:
         )
         .group_by("Global ICU Stay ID", "Hour Relative to Admission")
         .agg(vital_signs)
-        .pivot(
-            index="Global ICU Stay ID",
-            on="Hour Relative to Admission",
-            values=["GCS", "HR", "MAP", "Temp (C)", "RR"],
-            aggregate_function="mean",
-            separator=" Hour ",
+    )
+
+    # Apply forward-fill if requested
+    if args.forward_fill:
+        hourly_vitals = hourly_vitals.sort(
+            "Global ICU Stay ID", "Hour Relative to Admission"
         )
+        vital_cols = ["GCS", "HR", "MAP", "Temp (C)", "RR"]
+        hourly_vitals = hourly_vitals.with_columns(
+            pl.col(col)
+            .forward_fill()
+            .over("Global ICU Stay ID", order_by="Hour Relative to Admission")
+            for col in vital_cols
+        )
+
+    hourly_vitals = hourly_vitals.pivot(
+        index="Global ICU Stay ID",
+        on="Hour Relative to Admission",
+        values=["GCS", "HR", "MAP", "Temp (C)", "RR"],
+        aggregate_function="mean",
+        separator=" Hour ",
     )
 
     # Build aggregation list
