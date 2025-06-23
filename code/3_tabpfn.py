@@ -176,3 +176,30 @@ plt.legend(loc="lower right")
 plt.savefig(plot_output_path)
 plt.close()
 print(f"Plot saved to: {plot_output_path}")
+
+### SAVE RESULTS TO CSV ###
+# Create a DataFrame with patient IDs, actual labels, and predicted probabilities
+test_icu_ids = data.filter(pl.Series(test_mask))[
+    "Global ICU Stay ID"
+].to_numpy()
+
+predictions_df = pl.DataFrame(
+    {
+        "model_name": "PriorLabs/TabPFNv2",
+        "model_args": f"baseline_tabpfn{suffix}",
+        "num_shots": 0,  # Baseline models don't use shots
+        "auc_ci_lower": auc_stats["auc_ci_lower"],
+        "auc_ci_upper": auc_stats["auc_ci_upper"],
+        "global_icu_stay_id": test_icu_ids,
+        "actual_label": y_test_np,
+        "predicted_probability": y_pred_prob_test,
+    }
+)
+
+# Save CSV results
+csv_output_path = os.path.join(
+    args.plot_dir.replace("plots", "data"),
+    f"baseline_tabpfn{suffix}_results.csv",
+)
+os.makedirs(os.path.dirname(csv_output_path), exist_ok=True)
+predictions_df.write_csv(csv_output_path)

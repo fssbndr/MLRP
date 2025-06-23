@@ -74,6 +74,11 @@ rule all:
         summary_plot_auc_model_shots="output_plots/roc_curves_faceted_by_shots.png",
         summary_plot_auc_shots_model="output_plots/roc_curves_faceted_by_model.png",
         summary_plot_metrics_evolution="output_plots/metrics_evolution_with_shots.png",
+        # Add new baseline aggregation outputs
+        baseline_results="output_data/baseline_evaluation_results.csv",
+        baseline_comparison="output_plots/comprehensive_model_comparison.png",
+        baseline_roc_comparison="output_plots/baseline_roc_comparison.png",
+        publication_plot="output_plots/publication_main_results.png",
 
 rule create_data:
     input:
@@ -185,7 +190,8 @@ rule baseline_logistic:
         data="output_data/processed_data.parquet"
     output:
         summary="output_data/baseline_logistic_summary.txt",
-        plot="output_plots/baseline_logistic_roc_curve.png"
+        plot="output_plots/baseline_logistic_roc_curve.png",
+        results="output_data/baseline_logistic_results.csv"
     threads: 1
     run:
         # Calculate directories within the run block
@@ -200,7 +206,8 @@ rule baseline_logistic_hourly:
         data="output_data/processed_data_hourly.parquet"
     output:
         summary="output_data/baseline_logistic_hourly_summary.txt",
-        plot="output_plots/baseline_logistic_hourly_roc_curve.png"
+        plot="output_plots/baseline_logistic_hourly_roc_curve.png",
+        results="output_data/baseline_logistic_hourly_results.csv"
     threads: 1
     run:
         output_dir = os.path.dirname(output.summary)
@@ -213,7 +220,8 @@ rule baseline_logistic_forward_fill:
         data="output_data/processed_data_forward_fill.parquet"
     output:
         summary="output_data/baseline_logistic_forward_fill_summary.txt",
-        plot="output_plots/baseline_logistic_forward_fill_roc_curve.png"
+        plot="output_plots/baseline_logistic_forward_fill_roc_curve.png",
+        results="output_data/baseline_logistic_forward_fill_results.csv"
     threads: 1
     run:
         output_dir = os.path.dirname(output.summary)
@@ -226,7 +234,8 @@ rule baseline_logistic_stats:
         data="output_data/processed_data_stats.parquet"
     output:
         summary="output_data/baseline_logistic_stats_summary.txt",
-        plot="output_plots/baseline_logistic_stats_roc_curve.png"
+        plot="output_plots/baseline_logistic_stats_roc_curve.png",
+        results="output_data/baseline_logistic_stats_results.csv"
     threads: 1
     run:
         output_dir = os.path.dirname(output.summary)
@@ -239,7 +248,8 @@ rule baseline_logistic_minmax:
         data="output_data/processed_data_minmax.parquet"
     output:
         summary="output_data/baseline_logistic_minmax_summary.txt",
-        plot="output_plots/baseline_logistic_minmax_roc_curve.png"
+        plot="output_plots/baseline_logistic_minmax_roc_curve.png",
+        results="output_data/baseline_logistic_minmax_results.csv"
     threads: 1
     run:
         output_dir = os.path.dirname(output.summary)
@@ -252,7 +262,8 @@ rule baseline_logistic_hourly_stats:
         data="output_data/processed_data_hourly_stats.parquet"
     output:
         summary="output_data/baseline_logistic_hourly_stats_summary.txt",
-        plot="output_plots/baseline_logistic_hourly_stats_roc_curve.png"
+        plot="output_plots/baseline_logistic_hourly_stats_roc_curve.png",
+        results="output_data/baseline_logistic_hourly_stats_results.csv"
     threads: 1
     run:
         output_dir = os.path.dirname(output.summary)
@@ -265,7 +276,8 @@ rule baseline_xgboost:
         data="output_data/processed_data.parquet"
     output:
         model="output_data/baseline_xgboost_model.json",
-        plot="output_plots/baseline_xgboost_roc_curve.png"
+        plot="output_plots/baseline_xgboost_roc_curve.png",
+        results="output_data/baseline_xgboost_results.csv"
     threads: 1
     run:
         # Calculate directories within the run block
@@ -280,7 +292,8 @@ rule baseline_xgboost_hourly:
         data="output_data/processed_data_hourly.parquet"
     output:
         model="output_data/baseline_xgboost_hourly_model.json",
-        plot="output_plots/baseline_xgboost_hourly_roc_curve.png"
+        plot="output_plots/baseline_xgboost_hourly_roc_curve.png",
+        results="output_data/baseline_xgboost_hourly_results.csv"
     threads: 1
     run:
         output_dir = os.path.dirname(output.model)
@@ -293,7 +306,8 @@ rule baseline_xgboost_forward_fill:
         data="output_data/processed_data_forward_fill.parquet"
     output:
         model="output_data/baseline_xgboost_forward_fill_model.json",
-        plot="output_plots/baseline_xgboost_forward_fill_roc_curve.png"
+        plot="output_plots/baseline_xgboost_forward_fill_roc_curve.png",
+        results="output_data/baseline_xgboost_forward_fill_results.csv"
     threads: 1
     run:
         output_dir = os.path.dirname(output.model)
@@ -306,7 +320,8 @@ rule baseline_xgboost_stats:
         data="output_data/processed_data_stats.parquet"
     output:
         model="output_data/baseline_xgboost_stats_model.json",
-        plot="output_plots/baseline_xgboost_stats_roc_curve.png"
+        plot="output_plots/baseline_xgboost_stats_roc_curve.png",
+        results="output_data/baseline_xgboost_stats_results.csv"
     threads: 1
     run:
         output_dir = os.path.dirname(output.model)
@@ -319,7 +334,8 @@ rule baseline_xgboost_minmax:
         data="output_data/processed_data_minmax.parquet"
     output:
         model="output_data/baseline_xgboost_minmax_model.json",
-        plot="output_plots/baseline_xgboost_minmax_roc_curve.png"
+        plot="output_plots/baseline_xgboost_minmax_roc_curve.png",
+        results="output_data/baseline_xgboost_minmax_results.csv"
     threads: 1
     run:
         output_dir = os.path.dirname(output.model)
@@ -332,7 +348,8 @@ rule baseline_xgboost_hourly_stats:
         data="output_data/processed_data_hourly_stats.parquet"
     output:
         model="output_data/baseline_xgboost_hourly_stats_model.json",
-        plot="output_plots/baseline_xgboost_hourly_stats_roc_curve.png"
+        plot="output_plots/baseline_xgboost_hourly_stats_roc_curve.png",
+        results="output_data/baseline_xgboost_hourly_stats_results.csv"
     threads: 1
     run:
         output_dir = os.path.dirname(output.model)
@@ -355,7 +372,8 @@ rule baseline_tabpfn:
         script="code/3_tabpfn.py",
         data="output_data/processed_data.parquet"
     output:
-        plot="output_plots/tabpfn_roc_curve.png"
+        plot="output_plots/tabpfn_roc_curve.png",
+        results="output_data/baseline_tabpfn_results.csv"
     threads: 1
     run:
         plot_dir = os.path.dirname(output.plot)
@@ -366,7 +384,8 @@ rule baseline_tabpfn_hourly:
         script="code/3_tabpfn.py",
         data="output_data/processed_data_hourly.parquet"
     output:
-        plot="output_plots/tabpfn_hourly_roc_curve.png"
+        plot="output_plots/tabpfn_hourly_roc_curve.png",
+        results="output_data/baseline_tabpfn_hourly_results.csv"
     threads: 1
     run:
         plot_dir = os.path.dirname(output.plot)
@@ -377,7 +396,8 @@ rule baseline_tabpfn_forward_fill:
         script="code/3_tabpfn.py",
         data="output_data/processed_data_forward_fill.parquet"
     output:
-        plot="output_plots/tabpfn_forward_fill_roc_curve.png"
+        plot="output_plots/tabpfn_forward_fill_roc_curve.png",
+        results="output_data/baseline_tabpfn_forward_fill_results.csv"
     threads: 1
     run:
         plot_dir = os.path.dirname(output.plot)
@@ -388,7 +408,8 @@ rule baseline_tabpfn_stats:
         script="code/3_tabpfn.py",
         data="output_data/processed_data_stats.parquet"
     output:
-        plot="output_plots/tabpfn_stats_roc_curve.png"
+        plot="output_plots/tabpfn_stats_roc_curve.png",
+        results="output_data/baseline_tabpfn_stats_results.csv"
     threads: 1
     run:
         plot_dir = os.path.dirname(output.plot)
@@ -399,7 +420,8 @@ rule baseline_tabpfn_minmax:
         script="code/3_tabpfn.py",
         data="output_data/processed_data_minmax.parquet"
     output:
-        plot="output_plots/tabpfn_minmax_roc_curve.png"
+        plot="output_plots/tabpfn_minmax_roc_curve.png",
+        results="output_data/baseline_tabpfn_minmax_results.csv"
     threads: 1
     run:
         plot_dir = os.path.dirname(output.plot)
