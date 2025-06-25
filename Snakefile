@@ -733,41 +733,180 @@ rule tabpfn_all:
             shots=NUM_SHOT_VALUES_TABPFN_TS
         )
 
-rule baselines_all:
+rule baseline_kaplan_meier:
     input:
-        # Data processing
-        processed_data="output_data/processed_data.parquet",
-        processed_data_hourly="output_data/processed_data_hourly.parquet",
-        processed_data_forward_fill="output_data/processed_data_forward_fill.parquet",
-        processed_data_stats="output_data/processed_data_stats.parquet",
-        processed_data_minmax="output_data/processed_data_minmax.parquet",
-        processed_data_hourly_stats="output_data/processed_data_hourly_stats.parquet",
-        # Logistic regression baselines
-        log_summary="output_data/baseline_logistic_summary.txt",
-        log_plot="output_plots/baseline_logistic_roc_curve.png",
-        log_hourly_summary="output_data/baseline_logistic_hourly_summary.txt",
-        log_hourly_plot="output_plots/baseline_logistic_hourly_roc_curve.png",
-        log_forward_fill_summary="output_data/baseline_logistic_forward_fill_summary.txt",
-        log_forward_fill_plot="output_plots/baseline_logistic_forward_fill_roc_curve.png",
-        log_stats_summary="output_data/baseline_logistic_stats_summary.txt",
-        log_stats_plot="output_plots/baseline_logistic_stats_roc_curve.png",
-        log_minmax_summary="output_data/baseline_logistic_minmax_summary.txt",
-        log_minmax_plot="output_plots/baseline_logistic_minmax_roc_curve.png",
-        log_hourly_stats_summary="output_data/baseline_logistic_hourly_stats_summary.txt",
-        log_hourly_stats_plot="output_plots/baseline_logistic_hourly_stats_roc_curve.png",
-        # XGBoost baselines
-        xgboost_plot="output_plots/baseline_xgboost_roc_curve.png",
-        xgboost_hourly_plot="output_plots/baseline_xgboost_hourly_roc_curve.png",
-        xgboost_forward_fill_plot="output_plots/baseline_xgboost_forward_fill_roc_curve.png",
-        xgboost_stats_plot="output_plots/baseline_xgboost_stats_roc_curve.png",
-        xgboost_minmax_plot="output_plots/baseline_xgboost_minmax_roc_curve.png",
-        xgboost_hourly_stats_plot="output_plots/baseline_xgboost_hourly_stats_roc_curve.png",
-        # TabPFN baselines
-        tabpfn_plot="output_plots/tabpfn_roc_curve.png",
-        tabpfn_hourly_plot="output_plots/tabpfn_hourly_roc_curve.png",
-        tabpfn_forward_fill_plot="output_plots/tabpfn_forward_fill_roc_curve.png",
-        tabpfn_stats_plot="output_plots/tabpfn_stats_roc_curve.png",
-        tabpfn_minmax_plot="output_plots/tabpfn_minmax_roc_curve.png",
-        tabpfn_hourly_stats_plot="output_plots/tabpfn_hourly_stats_roc_curve.png",
-        # OASIS baseline
-        oasis_plot="output_plots/baseline_oasis_roc_curve.png"
+        script="code/2_baseline_kaplan_meier.py",
+        data="output_data/processed_data.parquet"
+    output:
+        summary="output_data/baseline_kaplan_meier_summary.txt",
+        plot="output_plots/baseline_kaplan_meier_roc_curve.png",
+        results="output_data/baseline_kaplan_meier_results.csv"
+    threads: 1
+    run:
+        output_dir = os.path.dirname(output.summary)
+        plot_dir = os.path.dirname(output.plot)
+        shell(f"python {input.script} --input '{input.data}' --output_dir '{output_dir}' --plot_dir '{plot_dir}'")
+
+rule baseline_cox:
+    input:
+        script="code/2_baseline_cox.py",
+        data="output_data/processed_data.parquet"
+    output:
+        summary="output_data/baseline_cox_summary.txt",
+        plot="output_plots/baseline_cox_roc_curve.png",
+        results="output_data/baseline_cox_results.csv"
+    threads: 1
+    run:
+        output_dir = os.path.dirname(output.summary)
+        plot_dir = os.path.dirname(output.plot)
+        shell(f"python {input.script} --input '{input.data}' --output_dir '{output_dir}' --plot_dir '{plot_dir}'")
+
+rule baseline_cox_hourly:
+    input:
+        script="code/2_baseline_cox.py",
+        data="output_data/processed_data_hourly.parquet"
+    output:
+        summary="output_data/baseline_cox_hourly_summary.txt",
+        plot="output_plots/baseline_cox_hourly_roc_curve.png",
+        results="output_data/baseline_cox_hourly_results.csv"
+    threads: 1
+    run:
+        output_dir = os.path.dirname(output.summary)
+        plot_dir = os.path.dirname(output.plot)
+        shell(f"python {input.script} --input '{input.data}' --output_dir '{output_dir}' --plot_dir '{plot_dir}'")
+
+rule baseline_cox_forward_fill:
+    input:
+        script="code/2_baseline_cox.py",
+        data="output_data/processed_data_forward_fill.parquet"
+    output:
+        summary="output_data/baseline_cox_forward_fill_summary.txt",
+        plot="output_plots/baseline_cox_forward_fill_roc_curve.png",
+        results="output_data/baseline_cox_forward_fill_results.csv"
+    threads: 1
+    run:
+        output_dir = os.path.dirname(output.summary)
+        plot_dir = os.path.dirname(output.plot)
+        shell(f"python {input.script} --input '{input.data}' --output_dir '{output_dir}' --plot_dir '{plot_dir}'")
+
+rule baseline_cox_stats:
+    input:
+        script="code/2_baseline_cox.py",
+        data="output_data/processed_data_stats.parquet"
+    output:
+        summary="output_data/baseline_cox_stats_summary.txt",
+        plot="output_plots/baseline_cox_stats_roc_curve.png",
+        results="output_data/baseline_cox_stats_results.csv"
+    threads: 1
+    run:
+        output_dir = os.path.dirname(output.summary)
+        plot_dir = os.path.dirname(output.plot)
+        shell(f"python {input.script} --input '{input.data}' --output_dir '{output_dir}' --plot_dir '{plot_dir}'")
+
+rule baseline_cox_minmax:
+    input:
+        script="code/2_baseline_cox.py",
+        data="output_data/processed_data_minmax.parquet"
+    output:
+        summary="output_data/baseline_cox_minmax_summary.txt",
+        plot="output_plots/baseline_cox_minmax_roc_curve.png",
+        results="output_data/baseline_cox_minmax_results.csv"
+    threads: 1
+    run:
+        output_dir = os.path.dirname(output.summary)
+        plot_dir = os.path.dirname(output.plot)
+        shell(f"python {input.script} --input '{input.data}' --output_dir '{output_dir}' --plot_dir '{plot_dir}'")
+
+rule baseline_cox_hourly_stats:
+    input:
+        script="code/2_baseline_cox.py",
+        data="output_data/processed_data_hourly_stats.parquet"
+    output:
+        summary="output_data/baseline_cox_hourly_stats_summary.txt",
+        plot="output_plots/baseline_cox_hourly_stats_roc_curve.png",
+        results="output_data/baseline_cox_hourly_stats_results.csv"
+    threads: 1
+    run:
+        output_dir = os.path.dirname(output.summary)
+        plot_dir = os.path.dirname(output.plot)
+        shell(f"python {input.script} --input '{input.data}' --output_dir '{output_dir}' --plot_dir '{plot_dir}'")
+
+rule aggregate_baseline_results:
+    input:
+        # Baseline result CSV files only - no evaluation_results dependency
+        baseline_logistic_results=[
+            "output_data/baseline_logistic_results.csv",
+            "output_data/baseline_logistic_hourly_results.csv",
+            "output_data/baseline_logistic_forward_fill_results.csv",
+            "output_data/baseline_logistic_stats_results.csv",
+            "output_data/baseline_logistic_minmax_results.csv",
+            "output_data/baseline_logistic_hourly_stats_results.csv"
+        ],
+        baseline_xgboost_results=[
+            "output_data/baseline_xgboost_results.csv",
+            "output_data/baseline_xgboost_hourly_results.csv",
+            "output_data/baseline_xgboost_forward_fill_results.csv",
+            "output_data/baseline_xgboost_stats_results.csv",
+            "output_data/baseline_xgboost_minmax_results.csv",
+            "output_data/baseline_xgboost_hourly_stats_results.csv"
+        ],
+        baseline_tabpfn_results=[
+            "output_data/baseline_tabpfn_results.csv",
+            "output_data/baseline_tabpfn_hourly_results.csv",
+            "output_data/baseline_tabpfn_forward_fill_results.csv",
+            "output_data/baseline_tabpfn_stats_results.csv",
+            "output_data/baseline_tabpfn_minmax_results.csv"
+        ],
+        baseline_survival_results=[
+            "output_data/baseline_kaplan_meier_results.csv",
+            "output_data/baseline_cox_results.csv",
+            "output_data/baseline_cox_hourly_results.csv",
+            "output_data/baseline_cox_forward_fill_results.csv",
+            "output_data/baseline_cox_stats_results.csv",
+            "output_data/baseline_cox_minmax_results.csv",
+            "output_data/baseline_cox_hourly_stats_results.csv"
+        ]
+    output:
+        baseline_results="output_data/baseline_evaluation_results.csv"
+    threads: 1
+    run:
+        import pandas as pd
+        import os
+
+        # Combine all baseline result files (no evaluation_results included)
+        dataframes_to_concat = []
+        
+        all_baseline_files = (list(input.baseline_logistic_results) + 
+                             list(input.baseline_xgboost_results) + 
+                             list(input.baseline_tabpfn_results) +
+                             list(input.baseline_survival_results))
+
+        for baseline_file in all_baseline_files:
+            if os.path.exists(baseline_file) and os.path.getsize(baseline_file) > 0:
+                try:
+                    df = pd.read_csv(baseline_file)
+                    dataframes_to_concat.append(df)
+                    print(f"Successfully read {baseline_file}")
+                except Exception as e:
+                    print(f"Warning: Could not read {baseline_file}: {e}")
+                    continue
+
+        # Aggregate the DataFrames into a single DataFrame
+        if dataframes_to_concat:
+            combined_df = pd.concat(dataframes_to_concat, ignore_index=True)
+        else:
+            combined_df = pd.DataFrame()
+
+        combined_df.to_csv(output.baseline_results, index=False)
+        print(f"Successfully created baseline results with {len(combined_df)} records in {output.baseline_results}.")
+
+rule create_publication_plots:
+    input:
+        script="code/6_create_publication_plots.py",
+        baseline_results="output_data/baseline_evaluation_results.csv"
+    output:
+        publication_plot="output_plots/publication_main_results.png"
+    threads: 1
+    run:
+        output_dir = os.path.dirname(output.publication_plot)
+        shell(f"python {input.script} --baseline_results '{input.baseline_results}' --output_dir '{output_dir}'")

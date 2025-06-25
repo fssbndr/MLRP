@@ -74,6 +74,7 @@ data = source_data.select(
     ),
     "Mortality in ICU",
     "Pre-ICU Length of Stay (days)",
+    "ICU Length of Stay (days)",
     "Admission Age (years)",
     "Glasgow coma score total",
     "Heart rate",
@@ -110,6 +111,7 @@ SECONDS_IN_HOUR = 3600
 patient_characteristics = [
     pl.col("Mortality in ICU").first(),
     pl.col("Pre-ICU Length of Stay (days)").min().alias("Pre-ICU LOS (days)"),
+    pl.col("ICU Length of Stay (days)").max().alias("ICU LOS (days)"),
     pl.col("Admission Age (years)").min().alias("Age (years)"),
     pl.col("Admission Type").first().cast(str).alias("Admission Type"),
     pl.col("Admission Urgency").first().cast(str).alias("Admission Urgency"),

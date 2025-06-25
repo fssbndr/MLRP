@@ -182,7 +182,7 @@ formula_str = f"{target_name} ~ {formula_features_str}"
 # Fit the model on the training data
 # sm.add_constant is not needed as smf handles the intercept by default
 model = smf.logit(formula=formula_str, data=X_train_pd)
-result = model.fit(disp=0)
+result = model.fit(disp=0, method="bfgs")
 
 ### SAVE SUMMARY ###
 # Write summary to file using the constructed path (summary is from model trained on training data)
