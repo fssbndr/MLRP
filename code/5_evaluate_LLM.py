@@ -444,16 +444,16 @@ if rows_dropped_train > 0:
 
 # Define models to evaluate
 model_configs = [
-    {"name": "llama3.2:3b-instruct-q8_0",         "id": "llama_3.2_3b"},
-    {"name": "llama3.1:8b-instruct-q8_0",         "id": "llama_3.1_8b"},
-    {"name": "qwen3:8b-q8_0",                     "id": "qwen_3_8b"},
-    {"name": "qwen3:8b-q8_0",                     "id": "qwen_3_8b_think"},
-    {"name": "granite3.3:8b-instruct-q8_0",       "id": "granite_3.3_8b"},
-    {"name": "mistral:7b-instruct-v0.3-q8_0",     "id": "mistral_7b"},
-    {"name": "deepseek-r1:8b-llama-distill-q8_0", "id": "deepseek_r1_8b"},
-    {"name": "gemma3:4b-it-q8_0",                 "id": "gemma_3_4b"},
-    {"name": "medgemma3:4b-it-q8_0",              "id": "medgemma_3_4b"}, # https://huggingface.co/unsloth/medgemma-4b-it-GGUF
-    {"name": "tabula:8b-q8_0",                    "id": "tabula_8b"},     # https://huggingface.co/tensorblock/tabula-8b-GGUF
+    {"name": "llama3.2:3b-instruct",         "id": "llama_3.2_3b"},
+    {"name": "llama3.1:8b-instruct",         "id": "llama_3.1_8b"},
+    {"name": "qwen3:8b",                     "id": "qwen_3_8b"},
+    {"name": "qwen3:8b",                     "id": "qwen_3_8b_think"},
+    {"name": "granite3.3:8b-instruct",       "id": "granite_3.3_8b"},
+    {"name": "mistral:7b-instruct-v0.3",     "id": "mistral_7b"},
+    {"name": "deepseek-r1:8b-llama-distill", "id": "deepseek_r1_8b"},
+    {"name": "gemma3:4b-it",                 "id": "gemma_3_4b"},
+    {"name": "medgemma3:4b-it",              "id": "medgemma_3_4b"}, # https://huggingface.co/unsloth/medgemma-4b-it-GGUF
+    {"name": "tabula:8b",                    "id": "tabula_8b"},     # https://huggingface.co/tensorblock/tabula-8b-GGUF
 ] # fmt: skip
 
 # Select the target model
