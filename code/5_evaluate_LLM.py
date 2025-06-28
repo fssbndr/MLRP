@@ -374,6 +374,12 @@ parser.add_argument(
     help="File ID of the model to evaluate (e.g., 'qwen_0_5b').",
 )
 parser.add_argument(
+    "--condition",
+    type=str,
+    default="basic",
+    help="Condition identifier for output filenames (e.g., 'basic', 'hourly', 'forward_fill').",
+)
+parser.add_argument(
     "--num_shots",
     type=int,
     default=0,
@@ -385,10 +391,10 @@ args = parser.parse_args()
 
 # Define output file paths
 output_csv_path = os.path.join(
-    args.output_dir, f"llm_{args.model}_{args.num_shots}-shot_results.csv"
+    args.output_dir, f"llm_{args.model}_{args.condition}_{args.num_shots}-shot_results.csv"
 )
 plot_output_path = os.path.join(
-    args.plot_dir, f"llm_{args.model}_{args.num_shots}-shot_roc_curve.png"
+    args.plot_dir, f"llm_{args.model}_{args.condition}_{args.num_shots}-shot_roc_curve.png"
 )
 
 # Ensure output directories exist

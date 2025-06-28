@@ -8,6 +8,13 @@ LLM_MODEL_IDS = ["qwen_3_8b"] # , "qwen_3_8b_think"] #, "medgemma_3_4b"]
 NUM_SHOT_VALUES = [0] + [2**i for i in range(5)]
 NUM_SHOT_VALUES_TABPFN = [2**i for i in range(9)]
 NUM_SHOT_VALUES_TABPFN_TS = [2**i for i in range(5)]
+CONDITIONS = ["basic", "hourly", "forward_fill", "stats", "minmax", "hourly_stats"]
+
+# Define wildcard constraints to prevent ambiguous parsing
+wildcard_constraints:
+    model="|".join(LLM_MODEL_IDS),
+    condition="|".join(CONDITIONS),
+    shots=r"\d+"
 
 rule all:
     input:
@@ -41,10 +48,22 @@ rule all:
         tabpfn_plot="output_plots/tabpfn_roc_curve.png",
         serialized_data_train="output_data/serialized_data.txt",
         serialized_data_test="output_data/serialized_data_test.txt",
+        # Add all serialization files for different conditions
+        serialized_data_hourly_train="output_data/serialized_data_hourly.txt",
+        serialized_data_hourly_test="output_data/serialized_data_hourly_test.txt",
+        serialized_data_forward_fill_train="output_data/serialized_data_forward_fill.txt",
+        serialized_data_forward_fill_test="output_data/serialized_data_forward_fill_test.txt",
+        serialized_data_stats_train="output_data/serialized_data_stats.txt",
+        serialized_data_stats_test="output_data/serialized_data_stats_test.txt",
+        serialized_data_minmax_train="output_data/serialized_data_minmax.txt",
+        serialized_data_minmax_test="output_data/serialized_data_minmax_test.txt",
+        serialized_data_hourly_stats_train="output_data/serialized_data_hourly_stats.txt",
+        serialized_data_hourly_stats_test="output_data/serialized_data_hourly_stats_test.txt",
         results="output_data/evaluation_results.csv",
         llm_plots=expand(
-            "output_plots/llm_{model}_{shots}-shot_roc_curve.png",
+            "output_plots/llm_{model}_{condition}_{shots}-shot_roc_curve.png",
             model=LLM_MODEL_IDS,
+            condition=CONDITIONS,
             shots=NUM_SHOT_VALUES
         ),
         tabpfn_plots=expand(
@@ -55,8 +74,16 @@ rule all:
             "output_plots/tabpfn-hourly_{shots}-shot_roc_curve.png",
             shots=NUM_SHOT_VALUES_TABPFN
         ),
+        tabpfn_forward_fill_plots=expand(
+            "output_plots/tabpfn-forward-fill_{shots}-shot_roc_curve.png",
+            shots=NUM_SHOT_VALUES_TABPFN
+        ),
         tabpfn_stats_plots=expand(
             "output_plots/tabpfn-stats_{shots}-shot_roc_curve.png",
+            shots=NUM_SHOT_VALUES_TABPFN
+        ),
+        tabpfn_minmax_plots=expand(
+            "output_plots/tabpfn-minmax_{shots}-shot_roc_curve.png",
             shots=NUM_SHOT_VALUES_TABPFN
         ),
         tabpfn_hourly_stats_plots=expand(
@@ -76,8 +103,6 @@ rule all:
         summary_plot_metrics_evolution="output_plots/metrics_evolution_with_shots.png",
         # Add new baseline aggregation outputs
         baseline_results="output_data/baseline_evaluation_results.csv",
-        baseline_comparison="output_plots/comprehensive_model_comparison.png",
-        baseline_roc_comparison="output_plots/baseline_roc_comparison.png",
         publication_plot="output_plots/publication_main_results.png",
 
 rule create_data:
@@ -438,24 +463,118 @@ rule serialize_data:
         serialized_tabula_test="output_data/tabula_serialized_data_test.txt"
     threads: 1
     run:
-        # Calculate directory within the run block
         serialized_dir = os.path.dirname(output.serialized_train_set)
-        # Use shell() function with f-string
-        shell(f"python {input.script} --input '{input.data}' --output_dir '{serialized_dir}'")
+        shell(f"python {input.script} --input '{input.data}' --output_dir '{serialized_dir}' --condition basic")
+
+rule serialize_data_hourly:
+    input:
+        script="code/4_serialize_data.py",
+        data="output_data/processed_data_hourly.parquet"
+    output:
+        serialized_train_set="output_data/serialized_data_hourly.txt",
+        serialized_test_set="output_data/serialized_data_hourly_test.txt",
+        serialized_tabula_train="output_data/tabula_serialized_data_hourly.txt",
+        serialized_tabula_test="output_data/tabula_serialized_data_hourly_test.txt"
+    threads: 1
+    run:
+        serialized_dir = os.path.dirname(output.serialized_train_set)
+        shell(f"python {input.script} --input '{input.data}' --output_dir '{serialized_dir}' --condition hourly")
+
+rule serialize_data_forward_fill:
+    input:
+        script="code/4_serialize_data.py",
+        data="output_data/processed_data_forward_fill.parquet"
+    output:
+        serialized_train_set="output_data/serialized_data_forward_fill.txt",
+        serialized_test_set="output_data/serialized_data_forward_fill_test.txt",
+        serialized_tabula_train="output_data/tabula_serialized_data_forward_fill.txt",
+        serialized_tabula_test="output_data/tabula_serialized_data_forward_fill_test.txt"
+    threads: 1
+    run:
+        serialized_dir = os.path.dirname(output.serialized_train_set)
+        shell(f"python {input.script} --input '{input.data}' --output_dir '{serialized_dir}' --condition forward_fill")
+
+rule serialize_data_stats:
+    input:
+        script="code/4_serialize_data.py",
+        data="output_data/processed_data_stats.parquet"
+    output:
+        serialized_train_set="output_data/serialized_data_stats.txt",
+        serialized_test_set="output_data/serialized_data_stats_test.txt",
+        serialized_tabula_train="output_data/tabula_serialized_data_stats.txt",
+        serialized_tabula_test="output_data/tabula_serialized_data_stats_test.txt"
+    threads: 1
+    run:
+        serialized_dir = os.path.dirname(output.serialized_train_set)
+        shell(f"python {input.script} --input '{input.data}' --output_dir '{serialized_dir}' --condition stats")
+
+rule serialize_data_minmax:
+    input:
+        script="code/4_serialize_data.py",
+        data="output_data/processed_data_minmax.parquet"
+    output:
+        serialized_train_set="output_data/serialized_data_minmax.txt",
+        serialized_test_set="output_data/serialized_data_minmax_test.txt",
+        serialized_tabula_train="output_data/tabula_serialized_data_minmax.txt",
+        serialized_tabula_test="output_data/tabula_serialized_data_minmax_test.txt"
+    threads: 1
+    run:
+        serialized_dir = os.path.dirname(output.serialized_train_set)
+        shell(f"python {input.script} --input '{input.data}' --output_dir '{serialized_dir}' --condition minmax")
+
+rule serialize_data_hourly_stats:
+    input:
+        script="code/4_serialize_data.py",
+        data="output_data/processed_data_hourly_stats.parquet"
+    output:
+        serialized_train_set="output_data/serialized_data_hourly_stats.txt",
+        serialized_test_set="output_data/serialized_data_hourly_stats_test.txt",
+        serialized_tabula_train="output_data/tabula_serialized_data_hourly_stats.txt",
+        serialized_tabula_test="output_data/tabula_serialized_data_hourly_stats_test.txt"
+    threads: 1
+    run:
+        serialized_dir = os.path.dirname(output.serialized_train_set)
+        shell(f"python {input.script} --input '{input.data}' --output_dir '{serialized_dir}' --condition hourly_stats")
 
 rule evaluate_llm_with_shots:
     input:
         script="code/5_evaluate_LLM.py",
-        serialized_data=lambda wildcards: "output_data/tabula_serialized_data.txt" if wildcards.model == "tabula_8b" else "output_data/serialized_data.txt",
-        serialized_data_test=lambda wildcards: "output_data/tabula_serialized_data_test.txt" if wildcards.model == "tabula_8b" else "output_data/serialized_data_test.txt",
-        processed_data="output_data/processed_data.parquet"
+        serialized_data=lambda wildcards: {
+            "basic": "output_data/serialized_data.txt",
+            "hourly": "output_data/serialized_data_hourly.txt", 
+            "forward_fill": "output_data/serialized_data_forward_fill.txt",
+            "stats": "output_data/serialized_data_stats.txt",
+            "minmax": "output_data/serialized_data_minmax.txt",
+            "hourly_stats": "output_data/serialized_data_hourly_stats.txt"
+        }[wildcards.condition],
+        serialized_data_test=lambda wildcards: {
+            "basic": "output_data/serialized_data_test.txt",
+            "hourly": "output_data/serialized_data_hourly_test.txt",
+            "forward_fill": "output_data/serialized_data_forward_fill_test.txt", 
+            "stats": "output_data/serialized_data_stats_test.txt",
+            "minmax": "output_data/serialized_data_minmax_test.txt",
+            "hourly_stats": "output_data/serialized_data_hourly_stats_test.txt"
+        }[wildcards.condition],
+        processed_data=lambda wildcards: {
+            "basic": "output_data/processed_data.parquet",
+            "hourly": "output_data/processed_data_hourly.parquet",
+            "forward_fill": "output_data/processed_data_forward_fill.parquet",
+            "stats": "output_data/processed_data_stats.parquet", 
+            "minmax": "output_data/processed_data_minmax.parquet",
+            "hourly_stats": "output_data/processed_data_hourly_stats.parquet"
+        }[wildcards.condition]
     output:
-        results="output_data/llm_{model}_{shots}-shot_results.csv",
-        plot="output_plots/llm_{model}_{shots}-shot_roc_curve.png"
+        results="output_data/llm_{model}_{condition}_{shots}-shot_results.csv",
+        plot="output_plots/llm_{model}_{condition}_{shots}-shot_roc_curve.png"
+    wildcard_constraints:
+        model="|".join(LLM_MODEL_IDS),
+        condition="|".join(CONDITIONS),
+        shots=r"\d+"
     threads: 1
     run:
         model_wc = wildcards.model
         shots_wc = wildcards.shots
+        condition_wc = wildcards.condition
 
         # Calculate directories within the run block
         output_dir = os.path.dirname(output.results)
@@ -470,6 +589,7 @@ rule evaluate_llm_with_shots:
             f"--output_dir '{output_dir}' "
             f"--plot_dir '{plot_dir}' "
             f"--model '{model_wc}' "
+            f"--condition '{condition_wc}' "
             f"--num_shots {shots_wc}"
         )
 
@@ -514,6 +634,28 @@ rule evaluate_tabpfn_hourly_with_shots:
             f"--plot_dir '{plot_dir}' "
             f"--num_shots {shots_wc} "
             f"--hourly"
+        )
+
+rule evaluate_tabpfn_forward_fill_with_shots:
+    input:
+        script="code/5_evaluate_TabPFN.py",
+        processed_data="output_data/processed_data_forward_fill.parquet"
+    output:
+        results="output_data/tabpfn-forward-fill_{shots}-shot_results.csv",
+        plot="output_plots/tabpfn-forward-fill_{shots}-shot_roc_curve.png"
+    threads: 1
+    run:
+        shots_wc = wildcards.shots
+        output_dir = os.path.dirname(output.results)
+        plot_dir = os.path.dirname(output.plot)
+
+        shell(
+            f"python {input.script} "
+            f"--processed_data_path '{input.processed_data}' "
+            f"--output_dir '{output_dir}' "
+            f"--plot_dir '{plot_dir}' "
+            f"--num_shots {shots_wc} "
+            f"--forward-fill"
         )
 
 rule evaluate_tabpfn_stats_with_shots:
@@ -628,8 +770,9 @@ rule evaluate_tabpfn_minmax_with_shots:
 rule aggregate_results:
     input:
         llm_results=expand(
-            "output_data/llm_{model}_{shots}-shot_results.csv",
+            "output_data/llm_{model}_{condition}_{shots}-shot_results.csv",
             model=LLM_MODEL_IDS,
+            condition=CONDITIONS,
             shots=NUM_SHOT_VALUES
         ),
         tabpfn_results=expand(
@@ -690,6 +833,23 @@ rule aggregate_results:
         aggregated_df = pd.concat(dataframes_to_concat, ignore_index=True)
         aggregated_df.to_csv(output.aggregated_results, index=False)
         print(f"Successfully aggregated {len(dataframes_to_concat)} CSV files into {output.aggregated_results}.")
+
+rule plot_evaluation_summary:
+    input:
+        script="code/6_plot_evaluation_results.py",
+        results_csv="output_data/evaluation_results.csv"
+    output:
+        plot1="output_plots/roc_curves_faceted_by_shots.png",
+        plot2="output_plots/roc_curves_faceted_by_model.png",
+        plot3="output_plots/metrics_evolution_with_shots.png"
+    threads: 1
+    run:
+        plot_dir = os.path.dirname(output.plot1)
+        shell(
+            f"python {input.script} "
+            f"--input_csv {input.results_csv} "
+            f"--output_dir {plot_dir}"
+        )
 
 rule tabpfn_all:
     input:

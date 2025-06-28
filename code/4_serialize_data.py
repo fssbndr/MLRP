@@ -126,10 +126,15 @@ def generate_icu_stay_summary(
     return clean_note(note)
 
 
-def generate_tabula_serialization(row: pd.Series) -> str:
+def generate_tabula_serialization(row: pd.Series, sort_cols: bool = False) -> str:
     """Generates a TabuLa-specific feature string for a given data row."""
     feature_parts = []
-    for col, val in row.items():
+    
+    # Get columns in the specified order
+    cols = sorted(row.index) if sort_cols else row.index
+    
+    for col in cols:
+        val = row[col]
         if (
             col in EXCLUDED_COLS_FOR_TABULA
             or col == TARGET_COL_FOR_TABULA
@@ -160,14 +165,27 @@ if __name__ == "__main__":
         required=True,
         help="Path to save the serialized summaries TXT file.",
     )
+    parser.add_argument(
+        "--condition",
+        type=str,
+        default="basic",
+        choices=["basic", "hourly", "forward_fill", "stats", "minmax", "hourly_stats"],
+        help="Data processing condition to determine file naming.",
+    )
     args = parser.parse_args()
+
+    # Determine if columns should be sorted (for hourly conditions)
+    sort_cols = "hourly" in args.condition
+    
+    # Create condition suffix for file naming
+    suffix = f"_{args.condition}" if args.condition != "basic" else ""
 
     # fmt: off
     # Define output file paths
-    txt_output_path_train = os.path.join(args.output_dir, "serialized_data.txt")
-    txt_output_path_test = os.path.join(args.output_dir, "serialized_data_test.txt")
-    txt_output_path_tabula_train = os.path.join(args.output_dir, "tabula_serialized_data.txt") 
-    txt_output_path_tabula_test = os.path.join(args.output_dir, "tabula_serialized_data_test.txt")
+    txt_output_path_train = os.path.join(args.output_dir, f"serialized_data{suffix}.txt")
+    txt_output_path_test = os.path.join(args.output_dir, f"serialized_data{suffix}_test.txt")
+    txt_output_path_tabula_train = os.path.join(args.output_dir, f"tabula_serialized_data{suffix}.txt") 
+    txt_output_path_tabula_test = os.path.join(args.output_dir, f"tabula_serialized_data{suffix}_test.txt")
     # fmt: on
 
     os.makedirs(args.output_dir, exist_ok=True)
@@ -207,8 +225,7 @@ if __name__ == "__main__":
     with open(txt_output_path_tabula_train, "w") as f:
         for _, row in train_source_df.iterrows():
             icu_id = row["global_icu_stay_id"]
-            # generate_tabula_serialization now only takes the row
-            tabula_feature_string = generate_tabula_serialization(row)
+            tabula_feature_string = generate_tabula_serialization(row, sort_cols)
             f.write(f"{icu_id}\t{tabula_feature_string}\n")
     print(
         "Successfully generated TabuLa training feature strings "
@@ -220,7 +237,7 @@ if __name__ == "__main__":
     with open(txt_output_path_tabula_test, "w") as f:
         for _, row in test_source_df.iterrows():
             icu_id = row["global_icu_stay_id"]
-            tabula_feature_string = generate_tabula_serialization(row)
+            tabula_feature_string = generate_tabula_serialization(row, sort_cols)
             f.write(f"{icu_id}\t{tabula_feature_string}\n")
     print(
         "Successfully generated TabuLa test feature strings "
