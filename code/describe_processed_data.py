@@ -1,14 +1,12 @@
 import pandas as pd
 from tableone import TableOne
 
-
 # Load processed data
 df = pd.read_parquet("./output_data/processed_data_basic.parquet")
 
 # Print columns for inspection
 print("Columns in processed_data_basic.parquet:")
 print(df.columns.tolist())
-
 
 
 # Use 'Global ICU Stay ID' as the source column and drop it after assignment

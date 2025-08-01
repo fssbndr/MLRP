@@ -2,6 +2,7 @@
 import argparse
 import os
 import warnings
+import re
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -460,7 +461,9 @@ def plot_auc_vs_shots(df_metrics, output_path, oasis_auc=None):
     ax.set_xlabel("Number of Shots", fontsize=12)
     ax.set_ylabel("AUC", fontsize=12)
     ax.set_title(
-        f"AUC Evolution for Condition {df_metrics['model_args'].iloc[0]}", fontweight="bold", fontsize=14
+        f"AUC Evolution for Condition {df_metrics['model_args'].iloc[0]}",
+        fontweight="bold",
+        fontsize=14,
     )
     ax.grid(alpha=0.3)
     ax.legend(title="Model", fontsize=10)
@@ -471,6 +474,78 @@ def plot_auc_vs_shots(df_metrics, output_path, oasis_auc=None):
 
 
 # --- Generate LaTeX table for LLMs and TabPFN (llm_tabpfn_full_results style) ---
+def generate_shot_results_tables(df_metrics, output_dir):
+    """
+    Generate LaTeX tables for shot_results (basic) and shot_results_stats (stats) conditions,
+    matching the format in report.tex for Table~\ref{tab:shot_results} and Table~\ref{tab:shot_results_stats}.
+    """
+    models = ["Qwen", "TabuLa", "MedGemma", "TabPFN"]
+    shots = [0, 1, 2, 4, 8, 16, 32, 64, 128]
+    conditions = {"shot_results": "basic", "shot_results_stats": "stats"}
+    for table_name, cond in conditions.items():
+        lines = []
+        lines.append("\\begin{table}[!htb]")
+        lines.append("  \\centering")
+        lines.append("  \\small")
+        lines.append(
+            f"  \\caption{{Effect of shot count on ROC-AUC (AUC [95\\% CI]) for TabPFN and LLMs in the {cond} condition.}}"
+        )
+        lines.append(f"  \\label{{tab:{table_name}}}")
+        lines.append("  \\begin{tabular}{lcccc}")
+        lines.append("  \\toprule")
+        lines.append(
+            "  Shots   & Qwen & TabuLa & MedGemma & TabPFN             \\\\"
+        )
+        lines.append("  \\midrule")
+        for shot in shots:
+            row = []
+            shot_label = f"{shot}-shot"
+            row.append(shot_label)
+            for model in models:
+                mask = (
+                    (df_metrics["model_name"].str.lower() == model.lower())
+                    & (df_metrics["model_args"] == cond)
+                    & (df_metrics["num_shots"] == shot)
+                )
+                if mask.any():
+                    r = df_metrics[mask].iloc[0]
+                    auc = r["AUC"]
+                    ci_low = r["AUC_CI_Low"]
+                    ci_high = r["AUC_CI_High"]
+                    if (
+                        pd.notnull(auc)
+                        and pd.notnull(ci_low)
+                        and pd.notnull(ci_high)
+                    ):
+                        cell = f"{auc:.3f} [{ci_low:.3f}--{ci_high:.3f}]"
+                        # Bold best AUC in row
+                        row.append(cell)
+                    else:
+                        row.append("--")
+                else:
+                    row.append("--")
+            # Bold the best AUC in the row (ignoring '--')
+            auc_vals = [
+                (float(re.match(r"([0-9.]+)", c).group(1)), i)
+                for i, c in enumerate(row[1:])
+                if c != "--"
+            ]
+            if auc_vals:
+                max_auc = max(auc_vals, key=lambda x: x[0])[0]
+                for val, idx in auc_vals:
+                    if abs(val - max_auc) < 1e-8:
+                        row[idx + 1] = f"\\textbf{{{row[idx+1]}}}"
+            lines.append("  " + " & ".join(row) + " \\\\")
+        lines.append("  \\bottomrule")
+        lines.append("  \\end{tabular}")
+        lines.append("\\end{table}")
+        with open(os.path.join(output_dir, f"{table_name}.tex"), "w") as f:
+            f.write("\n".join(lines))
+        print(
+            f"Saved LaTeX table to {os.path.join(output_dir, f'{table_name}.tex')}"
+        )
+
+
 def generate_llm_tabpfn_full_results_table(df_metrics, output_path):
     """
     Generate a LaTeX longtable for LLMs (Qwen, TabuLa, MedGemma) and TabPFN across all conditions and shot counts,
@@ -607,7 +682,14 @@ if __name__ == "__main__" or True:
     )
     # Per-model metrics evolution (for foundation models)
     foundation_models = ["TabPFN", "Qwen", "TabuLa", "MedGemma"]
-    conditions = ["basic", "minmax", "stats", "hourly", "forward_fill", "hourly_stats"]
+    conditions = [
+        "basic",
+        "minmax",
+        "stats",
+        "hourly",
+        "forward_fill",
+        "hourly_stats",
+    ]
 
     foundation_df = df_metrics[
         df_metrics["model_name"]
@@ -641,4 +723,6 @@ if __name__ == "__main__" or True:
         df_metrics,
         os.path.join(args.output_dir, "llm_tabpfn_full_results.tex"),
     )
+    # Generate shot_results and shot_results_stats tables
+    generate_shot_results_tables(df_metrics, args.output_dir)
     print(f"All plots and summary metrics saved to {args.output_dir}")
